@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 
-class TrackerPage extends StatelessWidget {
-  const TrackerPage({super.key});
+class FeedPage extends StatelessWidget {
+  const FeedPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const Center(child: Text('Tracker Page'));
+    return const Scaffold(
+      body: Center(
+        child: Text('Feed Page'),
+      ),
+    );
   }
 }

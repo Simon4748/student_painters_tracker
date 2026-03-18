@@ -15,7 +15,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   int _index = 0;
 
-  final pages = const [
+  final List<Widget> pages = const [
     TrackerPage(),
     FeedPage(),
     CoveragePage(),
@@ -26,17 +26,33 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'Student Painters',
       home: Scaffold(
         body: pages[_index],
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _index,
           onTap: (value) => setState(() => _index = value),
           items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Track'),
-            BottomNavigationBarItem(icon: Icon(Icons.feed), label: 'Feed'),
-            BottomNavigationBarItem(icon: Icon(Icons.layers), label: 'Coverage'),
-            BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Stats'),
-            BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.map),
+              label: 'Track',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.feed),
+              label: 'Feed',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.layers),
+              label: 'Coverage',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.bar_chart),
+              label: 'Stats',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.person),
+              label: 'Profile',
+            ),
           ],
         ),
       ),
