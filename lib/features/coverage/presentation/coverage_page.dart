@@ -21,6 +21,12 @@ class _CoveragePageState extends State<CoveragePage> {
   final UserRole _currentUserRole = UserRole.branchManager;
   bool _isEditMode = false;
 
+  String? _drawingMode; // 'zone' or 'subzone'
+  final List<LatLng> _draftPoints = [];
+
+  final TextEditingController _zoneNameController = TextEditingController();
+  String? _selectedParentZoneId;
+
   bool get _canEditZones {
     return _currentUserRole == UserRole.branchManager ||
         _currentUserRole == UserRole.generalManager ||
@@ -73,6 +79,12 @@ class _CoveragePageState extends State<CoveragePage> {
     _selectedMemberIds.addAll(
       CoverageDemoData.members.map((member) => member.id),
     );
+  }
+
+  @override
+  void dispose() {
+    _zoneNameController.dispose();
+    super.dispose();
   }
 
   void _showSubzonePanel(TerritorySubzone subzone) {
@@ -148,6 +160,386 @@ class _CoveragePageState extends State<CoveragePage> {
     });
   }
 
+  void _startDrawingZone() {
+    setState(() {
+      _drawingMode = 'zone';
+      _draftPoints.clear();
+    });
+  }
+
+  void _startDrawingSubzone() {
+    setState(() {
+      _drawingMode = 'subzone';
+      _draftPoints.clear();
+    });
+  }
+
+  void _cancelDrawing() {
+    setState(() {
+      _drawingMode = null;
+      _draftPoints.clear();
+    });
+  }
+
+  void _undoLastPoint() {
+    if (_draftPoints.isEmpty) return;
+
+    setState(() {
+      _draftPoints.removeLast();
+    });
+  }
+
+  void _addDraftPoint(LatLng point) {
+    if (_drawingMode == null) return;
+
+    setState(() {
+      _draftPoints.add(point);
+    });
+  }
+
+  void _saveDraftPolygon() {
+    if (_draftPoints.length < 3 || _drawingMode == null) return;
+
+    _zoneNameController.clear();
+    _selectedParentZoneId = CoverageDemoData.zones.isNotEmpty
+        ? CoverageDemoData.zones.first.id
+        : null;
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final isSubzone = _drawingMode == 'subzone';
+
+            return AlertDialog(
+              title: Text(isSubzone ? 'Save Subzone' : 'Save Zone'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: _zoneNameController,
+                    decoration: InputDecoration(
+                      labelText: isSubzone ? 'Subzone Name' : 'Zone Name',
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  if (isSubzone) ...[
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      value: _selectedParentZoneId,
+                      decoration: const InputDecoration(
+                        labelText: 'Parent Zone',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: CoverageDemoData.zones.map((zone) {
+                        return DropdownMenuItem<String>(
+                          value: zone.id,
+                          child: Text(zone.name),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setDialogState(() {
+                          _selectedParentZoneId = value;
+                        });
+                      },
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final name = _zoneNameController.text.trim();
+                    if (name.isEmpty) return;
+                    if (isSubzone && _selectedParentZoneId == null) return;
+
+                    setState(() {
+                      if (_drawingMode == 'zone') {
+                        CoverageDemoData.zones.add(
+                          TerritoryZone(
+                            id: 'zone_${DateTime.now().millisecondsSinceEpoch}',
+                            name: name,
+                            branchId: CoverageDemoData.branchId,
+                            points: List<LatLng>.from(_draftPoints),
+                          ),
+                        );
+                      } else {
+                        CoverageDemoData.subzones.add(
+                          TerritorySubzone(
+                            id: 'subzone_${DateTime.now().millisecondsSinceEpoch}',
+                            zoneId: _selectedParentZoneId!,
+                            name: name,
+                            branchId: CoverageDemoData.branchId,
+                            points: List<LatLng>.from(_draftPoints),
+                            status: ZoneCoverageStatus.uncovered,
+                            manualOverride: false,
+                          ),
+                        );
+                      }
+
+                      _drawingMode = null;
+                      _draftPoints.clear();
+                    });
+
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showZoneEditPanel(TerritoryZone zone) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                zone.name,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _renameZone(zone);
+                },
+                child: const Text('Edit Zone Name'),
+              ),
+              OutlinedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _deleteZone(zone);
+                },
+                child: const Text('Delete Zone'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSubzoneEditPanel(TerritorySubzone subzone) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                subzone.name,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text('Status: ${subzone.status.name}'),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _renameSubzone(subzone);
+                },
+                child: const Text('Edit Zone Name'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  _setManualCoverage(subzone, ZoneCoverageStatus.partial);
+                  Navigator.pop(context);
+                },
+                child: const Text('Manual: Partial'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  _setManualCoverage(subzone, ZoneCoverageStatus.full);
+                  Navigator.pop(context);
+                },
+                child: const Text('Manual: Full'),
+              ),
+              OutlinedButton(
+                onPressed: () {
+                  _setManualCoverage(subzone, ZoneCoverageStatus.uncovered);
+                  Navigator.pop(context);
+                },
+                child: const Text('Manual: Uncovered'),
+              ),
+              OutlinedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _deleteSubzone(subzone);
+                },
+                child: const Text('Delete Zone'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _renameZone(TerritoryZone zone) {
+    final controller = TextEditingController(text: zone.name);
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Zone Name'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            labelText: 'Zone Name',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newName = controller.text.trim();
+              if (newName.isEmpty) return;
+
+              final index =
+                  CoverageDemoData.zones.indexWhere((z) => z.id == zone.id);
+              if (index == -1) return;
+
+              setState(() {
+                CoverageDemoData.zones[index] = TerritoryZone(
+                  id: zone.id,
+                  name: newName,
+                  branchId: zone.branchId,
+                  points: zone.points,
+                );
+              });
+
+              Navigator.of(context).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _renameSubzone(TerritorySubzone subzone) {
+    final controller = TextEditingController(text: subzone.name);
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Subzone Name'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            labelText: 'Subzone Name',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newName = controller.text.trim();
+              if (newName.isEmpty) return;
+
+              final index = CoverageDemoData.subzones
+                  .indexWhere((s) => s.id == subzone.id);
+              if (index == -1) return;
+
+              setState(() {
+                CoverageDemoData.subzones[index] = TerritorySubzone(
+                  id: subzone.id,
+                  zoneId: subzone.zoneId,
+                  name: newName,
+                  branchId: subzone.branchId,
+                  points: subzone.points,
+                  status: subzone.status,
+                  manualOverride: subzone.manualOverride,
+                );
+              });
+
+              Navigator.of(context).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteZone(TerritoryZone zone) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Zone'),
+        content: Text('Delete "${zone.name}" and its subzones?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                CoverageDemoData.zones.removeWhere((z) => z.id == zone.id);
+                CoverageDemoData.subzones
+                    .removeWhere((s) => s.zoneId == zone.id);
+              });
+              Navigator.of(context).pop();
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteSubzone(TerritorySubzone subzone) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Subzone'),
+        content: Text('Delete "${subzone.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                CoverageDemoData.subzones.removeWhere((s) => s.id == subzone.id);
+              });
+              Navigator.of(context).pop();
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<CoverageRun> _filteredRuns() {
     return CoverageDemoData.runs.where((run) {
       final matchesMember = _selectedMemberIds.contains(run.memberId);
@@ -199,6 +591,12 @@ class _CoveragePageState extends State<CoveragePage> {
         Polygon(
           polygonId: PolygonId(zone.id),
           points: zone.points,
+          consumeTapEvents: true,
+          onTap: _isEditMode
+              ? () {
+                  _showZoneEditPanel(zone);
+                }
+              : null,
           strokeColor: Colors.blueGrey,
           strokeWidth: 2,
           fillColor: Colors.blue.withOpacity(0.08),
@@ -212,14 +610,16 @@ class _CoveragePageState extends State<CoveragePage> {
           polygonId: PolygonId(subzone.id),
           points: subzone.points,
           consumeTapEvents: true,
-          onTap: _isEditMode
-            ? null
-            : () {
+            onTap: () {
+              if (_isEditMode) {
+                _showSubzoneEditPanel(subzone);
+              } else {
                 setState(() {
                   _selectedSubzone = subzone;
                 });
                 _showSubzonePanel(subzone);
-              },
+              }
+            },
           strokeColor: Colors.black87,
           strokeWidth: 2,
           fillColor: _subzoneFillColor(subzone.status),
@@ -227,7 +627,37 @@ class _CoveragePageState extends State<CoveragePage> {
       );
     }
 
+    if (_draftPoints.length >= 3) {
+      polygons.add(
+        Polygon(
+          polygonId: const PolygonId('draft_polygon'),
+          points: _draftPoints,
+          strokeColor: Colors.orange,
+          strokeWidth: 3,
+          fillColor: Colors.orange.withOpacity(0.2),
+        ),
+      );
+    }
+
     return polygons;
+  }
+
+  Set<Marker> _buildDraftMarkers() {
+    if (_draftPoints.isEmpty) return {};
+
+    final markers = <Marker>{};
+
+    for (int i = 0; i < _draftPoints.length; i++) {
+      markers.add(
+        Marker(
+          markerId: MarkerId('draft_point_$i'),
+          position: _draftPoints[i],
+          infoWindow: InfoWindow(title: 'Point ${i + 1}'),
+        ),
+      );
+    }
+
+    return markers;
   }
 
   Widget _buildMemberChips() {
@@ -364,16 +794,18 @@ class _CoveragePageState extends State<CoveragePage> {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 12),
+
+                  // Main edit buttons
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
                       ElevatedButton(
-                        onPressed: _createZone,
+                        onPressed: _startDrawingZone,
                         child: const Text('Create Zone'),
                       ),
                       ElevatedButton(
-                        onPressed: _createSubzone,
+                        onPressed: _startDrawingSubzone,
                         child: const Text('Create Subzone'),
                       ),
                       OutlinedButton(
@@ -382,6 +814,39 @@ class _CoveragePageState extends State<CoveragePage> {
                       ),
                     ],
                   ),
+
+                  // Drawing controls
+                  if (_drawingMode != null) ...[
+                    const SizedBox(height: 12),
+
+                    Text(
+                      _drawingMode == 'zone'
+                          ? 'Drawing new zone: tap map to add points'
+                          : 'Drawing new subzone: tap map to add points',
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: _draftPoints.isNotEmpty ? _undoLastPoint : null,
+                          child: const Text('Undo Point'),
+                        ),
+                        ElevatedButton(
+                          onPressed:
+                              _draftPoints.length >= 3 ? _saveDraftPolygon : null,
+                          child: const Text('Save'),
+                        ),
+                        TextButton(
+                          onPressed: _cancelDrawing,
+                          child: const Text('Cancel'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -391,8 +856,10 @@ class _CoveragePageState extends State<CoveragePage> {
                 target: LatLng(42.8120, -72.5450),
                 zoom: 12,
               ),
+              onTap: _isEditMode ? _addDraftPoint : null,
               polylines: _isEditMode ? {} : _buildRunPolylines(),
               polygons: _buildZonePolygons(),
+              markers: _isEditMode ? _buildDraftMarkers() : {},
               myLocationEnabled: false,
               zoomControlsEnabled: true,
             ),
