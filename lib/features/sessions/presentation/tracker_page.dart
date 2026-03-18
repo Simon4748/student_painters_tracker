@@ -4,6 +4,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../domain/session_type.dart';
 
+import '../../../shared/models/tracked_session.dart';
+import '../../../shared/models/session_store.dart';
+
 class TrackerPage extends StatefulWidget {
   const TrackerPage({super.key});
 
@@ -84,6 +87,18 @@ class _TrackerPageState extends State<TrackerPage> {
 
     final type = _selectedSessionType;
     final elapsed = _elapsed;
+
+    if (type != null && _routePoints.isNotEmpty) {
+      final session = TrackedSession(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        type: type,
+        elapsed: elapsed,
+        completedAt: DateTime.now(),
+        routePoints: List<LatLng>.from(_routePoints),
+      );
+
+      SessionStore.sessions.insert(0, session);
+    }
 
     showDialog<void>(
       context: context,
