@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../domain/session_type.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+import '../domain/session_type.dart';
 
 class TrackerPage extends StatefulWidget {
   const TrackerPage({super.key});
@@ -13,14 +14,28 @@ class TrackerPage extends StatefulWidget {
 class _TrackerPageState extends State<TrackerPage> {
   SessionType? _selectedSessionType;
   Timer? _timer;
+  GoogleMapController? _mapController;
 
   Duration _elapsed = Duration.zero;
   bool _isRunning = false;
   bool _isPaused = false;
 
+  final List<LatLng> _routePoints = [];
+  int _currentRouteIndex = 0;
+
+  final List<LatLng> _fullRoute = const [
+    LatLng(42.3496, -71.0995),
+    LatLng(42.3502, -71.1005),
+    LatLng(42.3510, -71.1012),
+    LatLng(42.3515, -71.1000),
+    LatLng(42.3520, -71.0990),
+    LatLng(42.3525, -71.1002),
+  ];
+
   @override
   void dispose() {
     _timer?.cancel();
+    _mapController?.dispose();
     super.dispose();
   }
 
@@ -37,6 +52,7 @@ class _TrackerPageState extends State<TrackerPage> {
       setState(() {
         _elapsed += const Duration(seconds: 1);
       });
+      _addNextRoutePoint();
     });
   }
 
@@ -59,6 +75,7 @@ class _TrackerPageState extends State<TrackerPage> {
       setState(() {
         _elapsed += const Duration(seconds: 1);
       });
+      _addNextRoutePoint();
     });
   }
 
@@ -91,13 +108,42 @@ class _TrackerPageState extends State<TrackerPage> {
   }
 
   void _resetSession() {
+    _timer?.cancel();
+
     setState(() {
       _selectedSessionType = null;
       _elapsed = Duration.zero;
       _isRunning = false;
       _isPaused = false;
-      _timer?.cancel();
+      _routePoints.clear();
+      _currentRouteIndex = 0;
     });
+  }
+
+  void _addNextRoutePoint() {
+    if (_currentRouteIndex >= _fullRoute.length) return;
+
+    setState(() {
+      _routePoints.add(_fullRoute[_currentRouteIndex]);
+      _currentRouteIndex++;
+    });
+
+    if (_routePoints.isNotEmpty && _mapController != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLng(_routePoints.last),
+      );
+    }
+  }
+
+  Set<Polyline> _buildPolylines() {
+    return {
+      Polyline(
+        polylineId: const PolylineId('sample_route'),
+        color: Colors.blue,
+        width: 4,
+        points: _routePoints,
+      ),
+    };
   }
 
   String _formatDuration(Duration duration) {
@@ -179,18 +225,21 @@ class _TrackerPageState extends State<TrackerPage> {
                 height: 220,
                 width: double.infinity,
                 child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: GoogleMap(
+                  borderRadius: BorderRadius.circular(12),
+                  child: GoogleMap(
+                    onMapCreated: (controller) {
+                      _mapController = controller;
+                    },
                     initialCameraPosition: const CameraPosition(
-                        target: LatLng(42.3505, -71.1005),
-                        zoom: 15,
+                      target: LatLng(42.3505, -71.1005),
+                      zoom: 15,
                     ),
                     polylines: _buildPolylines(),
                     myLocationEnabled: false,
                     zoomControlsEnabled: false,
-                    ),
+                  ),
                 ),
-                ),
+              ),
               const SizedBox(height: 24),
               Row(
                 children: [
@@ -227,20 +276,4 @@ class _TrackerPageState extends State<TrackerPage> {
       ),
     );
   }
-    final List<LatLng> _sampleRoute = const [
-        LatLng(42.3496, -71.0995),
-        LatLng(42.3502, -71.1005),
-        LatLng(42.3510, -71.1012),
-        LatLng(42.3515, -71.1000),
-    ];
-    Set<Polyline> _buildPolylines() {
-        return {
-            Polyline(
-            polylineId: const PolylineId('sample_route'),
-            color: Colors.blue,
-            width: 4,
-            points: _sampleRoute,
-        ),
-    };
-}
 }
