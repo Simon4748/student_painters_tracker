@@ -5,6 +5,9 @@ import '../data/coverage_demo_data.dart';
 import '../domain/coverage_models.dart';
 import '../../sessions/domain/session_type.dart';
 
+import 'dart:ui' as ui;
+import 'dart:typed_data';
+
 class CoveragePage extends StatefulWidget {
   const CoveragePage({super.key});
 
@@ -18,6 +21,9 @@ class _CoveragePageState extends State<CoveragePage> {
   bool _showZones = true;
   TerritorySubzone? _selectedSubzone;
 
+  BitmapDescriptor? _draftPointIcon;
+  BitmapDescriptor? _editPointIcon;
+
   final UserRole _currentUserRole = UserRole.branchManager;
   bool _isEditMode = false;
 
@@ -27,10 +33,28 @@ class _CoveragePageState extends State<CoveragePage> {
   final TextEditingController _zoneNameController = TextEditingController();
   String? _selectedParentZoneId;
 
+  String? _editingZoneId;
+  String? _editingSubzoneId;
+  List<LatLng> _editingPoints = [];
+
+  bool _isMenuOpen = false;
+
   bool get _canEditZones {
     return _currentUserRole == UserRole.branchManager ||
         _currentUserRole == UserRole.generalManager ||
         _currentUserRole == UserRole.executive;
+  }
+
+  bool get _isDrawing {
+    return _drawingMode != null;
+  }
+
+  bool get _isEditingShape {
+    return _editingZoneId != null || _editingSubzoneId != null;
+  }
+
+  bool get _isInteractionLocked {
+    return _isMenuOpen || _isDrawing || _isEditingShape;
   }
 
   void _createZone() {
@@ -79,6 +103,7 @@ class _CoveragePageState extends State<CoveragePage> {
     _selectedMemberIds.addAll(
       CoverageDemoData.members.map((member) => member.id),
     );
+    _initializeMarkerIcons();
   }
 
   @override
@@ -88,59 +113,65 @@ class _CoveragePageState extends State<CoveragePage> {
   }
 
   void _showSubzonePanel(TerritorySubzone subzone) {
-  showModalBottomSheet(
-    context: context,
-    builder: (context) {
-      return Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Subzone ${subzone.name}',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text('Status: ${subzone.status.name}'),
-            const SizedBox(height: 16),
+
+    setState(() {
+      _isMenuOpen = true;
+    });
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Subzone ${subzone.name}',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text('Status: ${subzone.status.name}'),
+              const SizedBox(height: 16),
 
 
-            OutlinedButton(
-              onPressed: () {
-                _setManualCoverage(subzone, ZoneCoverageStatus.uncovered);
-                Navigator.pop(context);
-              },
-                child: const Text('Reset to Uncovered'),
+              OutlinedButton(
+                onPressed: () {
+                  _setManualCoverage(subzone, ZoneCoverageStatus.uncovered);
+                  Navigator.pop(context);
+                },
+                  child: const Text('Reset to Uncovered'),
+                ),
+
+              ElevatedButton(
+                onPressed: () {
+                  _setManualCoverage(subzone, ZoneCoverageStatus.partial);
+                  Navigator.pop(context);
+                },
+                child: const Text('Mark Partially Covered'),
               ),
 
-            ElevatedButton(
-              onPressed: () {
-                _setManualCoverage(subzone, ZoneCoverageStatus.partial);
-                Navigator.pop(context);
-              },
-              child: const Text('Mark Partially Covered'),
-            ),
-
-            ElevatedButton(
-              onPressed: () {
-                _setManualCoverage(subzone, ZoneCoverageStatus.full);
-                Navigator.pop(context);
-              },
-              child: const Text('Mark Fully Covered'),
-            ),
-
+              ElevatedButton(
+                onPressed: () {
+                  _setManualCoverage(subzone, ZoneCoverageStatus.full);
+                  Navigator.pop(context);
+                },
+                child: const Text('Mark Fully Covered'),
+              ),
             ],
          ),
         );
       },
-    );
+    ).whenComplete(() {
+      if (!mounted) return;
+      setState(() {
+        _isMenuOpen = false;
+      });
+    });
   }
 
-  void _setManualCoverage(
-  TerritorySubzone subzone,
-  ZoneCoverageStatus newStatus,
-  ) {
+  void _setManualCoverage(TerritorySubzone subzone, ZoneCoverageStatus newStatus,){
     final index = CoverageDemoData.subzones.indexWhere(
       (s) => s.id == subzone.id,
     );
@@ -299,6 +330,11 @@ class _CoveragePageState extends State<CoveragePage> {
   }
 
   void _showZoneEditPanel(TerritoryZone zone) {
+
+      setState(() {
+        _isMenuOpen = true;
+      });
+
     showModalBottomSheet(
       context: context,
       builder: (context) {
@@ -313,6 +349,13 @@ class _CoveragePageState extends State<CoveragePage> {
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _beginZoneVertexEdit(zone);
+                },
+                child: const Text('Edit Zone Shape'),
+              ),
               ElevatedButton(
                 onPressed: () {
                   Navigator.pop(context);
@@ -331,10 +374,20 @@ class _CoveragePageState extends State<CoveragePage> {
           ),
         );
       },
-    );
+    ).whenComplete(() {
+      if(!mounted) return;
+      setState(() {
+        _isMenuOpen = false;
+      });
+    });
   }
 
   void _showSubzoneEditPanel(TerritorySubzone subzone) {
+
+    setState(() {
+      _isMenuOpen = true;
+    });
+
     showModalBottomSheet(
       context: context,
       builder: (context) {
@@ -354,9 +407,23 @@ class _CoveragePageState extends State<CoveragePage> {
               ElevatedButton(
                 onPressed: () {
                   Navigator.pop(context);
+                  _beginSubzoneVertexEdit(subzone);
+                },
+                child: const Text('Edit Zone Shape'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
                   _renameSubzone(subzone);
                 },
                 child: const Text('Edit Zone Name'),
+              ),
+              OutlinedButton(
+                onPressed: () {
+                  _setManualCoverage(subzone, ZoneCoverageStatus.uncovered);
+                  Navigator.pop(context);
+                },
+                child: const Text('Manual: Uncovered'),
               ),
               ElevatedButton(
                 onPressed: () {
@@ -370,14 +437,7 @@ class _CoveragePageState extends State<CoveragePage> {
                   _setManualCoverage(subzone, ZoneCoverageStatus.full);
                   Navigator.pop(context);
                 },
-                child: const Text('Manual: Full'),
-              ),
-              OutlinedButton(
-                onPressed: () {
-                  _setManualCoverage(subzone, ZoneCoverageStatus.uncovered);
-                  Navigator.pop(context);
-                },
-                child: const Text('Manual: Uncovered'),
+                child: const Text('Manual: Covered'),
               ),
               OutlinedButton(
                 onPressed: () {
@@ -390,10 +450,20 @@ class _CoveragePageState extends State<CoveragePage> {
           ),
         );
       },
-    );
+    ).whenComplete(() {
+      if(!mounted) return;
+      setState(() {
+        _isMenuOpen = false;
+      });
+    });
   }
 
   void _renameZone(TerritoryZone zone) {
+
+    setState(() {
+      _isMenuOpen = true;
+    });
+
     final controller = TextEditingController(text: zone.name);
 
     showDialog<void>(
@@ -436,10 +506,20 @@ class _CoveragePageState extends State<CoveragePage> {
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      if (!mounted) return;
+      setState(() {
+        _isMenuOpen = false;
+      });
+    });
   }
 
   void _renameSubzone(TerritorySubzone subzone) {
+
+    setState(() {
+      _isMenuOpen = true;
+    }); 
+
     final controller = TextEditingController(text: subzone.name);
 
     showDialog<void>(
@@ -485,10 +565,20 @@ class _CoveragePageState extends State<CoveragePage> {
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      if (!mounted) return;
+      setState(() {
+        _isMenuOpen = false;
+      });
+    });
   }
 
   void _deleteZone(TerritoryZone zone) {
+
+    setState(() {
+      _isMenuOpen = true;
+    }); 
+
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -512,10 +602,20 @@ class _CoveragePageState extends State<CoveragePage> {
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      if (!mounted) return;
+      setState(() {
+        _isMenuOpen = false;
+      });
+    });
   }
 
   void _deleteSubzone(TerritorySubzone subzone) {
+
+    setState(() {
+      _isMenuOpen = true;
+    }); 
+
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -537,7 +637,125 @@ class _CoveragePageState extends State<CoveragePage> {
           ),
         ],
       ),
+    ).whenComplete(() {
+      if (!mounted) return;
+      setState(() {
+        _isMenuOpen = false;
+      });
+    });
+  }
+
+  void _beginZoneVertexEdit(TerritoryZone zone) {
+    setState(() {
+      _editingZoneId = zone.id;
+      _editingSubzoneId = null;
+      _editingPoints = List<LatLng>.from(zone.points);
+      _drawingMode = null;
+      _draftPoints.clear();
+    });
+  }
+
+  void _beginSubzoneVertexEdit(TerritorySubzone subzone) {
+    setState(() {
+      _editingSubzoneId = subzone.id;
+      _editingZoneId = null;
+      _editingPoints = List<LatLng>.from(subzone.points);
+      _drawingMode = null;
+      _draftPoints.clear();
+    });
+  }
+
+  void _cancelVertexEdit() {
+    setState(() {
+      _editingZoneId = null;
+      _editingSubzoneId = null;
+      _editingPoints.clear();
+    });
+  }
+
+  void _saveVertexEdit() {
+    if (_editingPoints.length < 3) return;
+
+    setState(() {
+      if (_editingZoneId != null) {
+        final index = CoverageDemoData.zones.indexWhere((z) => z.id == _editingZoneId);
+        if (index != -1) {
+          final zone = CoverageDemoData.zones[index];
+          CoverageDemoData.zones[index] = TerritoryZone(
+            id: zone.id,
+            name: zone.name,
+            branchId: zone.branchId,
+            points: List<LatLng>.from(_editingPoints),
+          );
+        }
+      } else if (_editingSubzoneId != null) {
+        final index = CoverageDemoData.subzones.indexWhere((s) => s.id == _editingSubzoneId);
+        if (index != -1) {
+          final subzone = CoverageDemoData.subzones[index];
+          CoverageDemoData.subzones[index] = TerritorySubzone(
+            id: subzone.id,
+            zoneId: subzone.zoneId,
+            name: subzone.name,
+            branchId: subzone.branchId,
+            points: List<LatLng>.from(_editingPoints),
+            status: subzone.status,
+            manualOverride: subzone.manualOverride,
+          );
+        }
+      }
+
+      _editingZoneId = null;
+      _editingSubzoneId = null;
+      _editingPoints.clear();
+    });
+  }
+
+  Future<void> _initializeMarkerIcons() async {
+    final draft = await _createCircleMarkerIcon(
+      fillColor: Colors.red,
+      strokeColor: Colors.white,
+      diameter: 16,
     );
+
+    final edit = await _createCircleMarkerIcon(
+      fillColor: Colors.blue,
+      strokeColor: Colors.white,
+      diameter: 16,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _draftPointIcon = draft;
+      _editPointIcon = edit;
+    });
+  }
+
+  Future<BitmapDescriptor> _createCircleMarkerIcon({
+    required Color fillColor,
+    required Color strokeColor,
+    int diameter = 24,
+    }) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final paint = Paint()..color = fillColor;
+    final strokePaint = Paint()
+      ..color = strokeColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+
+    final center = Offset(diameter / 2, diameter / 2);
+    final radius = diameter / 2.5;
+
+    canvas.drawCircle(center, radius, paint);
+    canvas.drawCircle(center, radius, strokePaint);
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(diameter, diameter);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    final bytes = byteData!.buffer.asUint8List();
+
+    return BitmapDescriptor.bytes(bytes);
   }
 
   List<CoverageRun> _filteredRuns() {
@@ -591,8 +809,8 @@ class _CoveragePageState extends State<CoveragePage> {
         Polygon(
           polygonId: PolygonId(zone.id),
           points: zone.points,
-          consumeTapEvents: true,
-          onTap: _isEditMode
+          consumeTapEvents: !_isDrawing && !_isEditingShape && !_isMenuOpen,
+          onTap: (_isEditMode && !_isInteractionLocked)
               ? () {
                   _showZoneEditPanel(zone);
                 }
@@ -609,17 +827,19 @@ class _CoveragePageState extends State<CoveragePage> {
         Polygon(
           polygonId: PolygonId(subzone.id),
           points: subzone.points,
-          consumeTapEvents: true,
-            onTap: () {
-              if (_isEditMode) {
-                _showSubzoneEditPanel(subzone);
-              } else {
-                setState(() {
-                  _selectedSubzone = subzone;
-                });
-                _showSubzonePanel(subzone);
-              }
-            },
+          consumeTapEvents: !_isDrawing && !_isEditingShape && !_isMenuOpen,
+          onTap: _isInteractionLocked
+              ? null
+              : () {
+                  if (_isEditMode) {
+                    _showSubzoneEditPanel(subzone);
+                  } else {
+                    setState(() {
+                      _selectedSubzone = subzone;
+                    });
+                    _showSubzonePanel(subzone);
+                  }
+                },
           strokeColor: Colors.black87,
           strokeWidth: 2,
           fillColor: _subzoneFillColor(subzone.status),
@@ -639,6 +859,18 @@ class _CoveragePageState extends State<CoveragePage> {
       );
     }
 
+    if (_editingPoints.length >= 3) {
+      polygons.add(
+        Polygon(
+          polygonId: const PolygonId('editing_polygon'),
+          points: _editingPoints,
+          strokeColor: Colors.deepPurple,
+          strokeWidth: 3,
+          fillColor: Colors.deepPurple.withOpacity(0.18),
+        ),
+      );
+    }
+
     return polygons;
   }
 
@@ -652,7 +884,38 @@ class _CoveragePageState extends State<CoveragePage> {
         Marker(
           markerId: MarkerId('draft_point_$i'),
           position: _draftPoints[i],
+          icon: _draftPointIcon ?? BitmapDescriptor.defaultMarker,
+          anchor: const Offset(0.5, 0.5),
           infoWindow: InfoWindow(title: 'Point ${i + 1}'),
+        ),
+      );
+    }
+
+    return markers;
+  }
+
+  Set<Marker> _buildEditMarkers() {
+    if (_editingPoints.isEmpty) return {};
+
+    final markers = <Marker>{};
+
+    for (int i = 0; i < _editingPoints.length; i++) {
+      markers.add(
+        Marker(
+          markerId: MarkerId('edit_point_$i'),
+          position: _editingPoints[i],
+          draggable: true,
+          icon: _editPointIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(
+                BitmapDescriptor.hueAzure,
+              ),
+          anchor: const Offset(0.5, 0.5),
+          onDragEnd: (newPosition) {
+            setState(() {
+              _editingPoints[i] = newPosition;
+            });
+          },
+          infoWindow: InfoWindow(title: 'Vertex ${i + 1}'),
         ),
       );
     }
@@ -847,6 +1110,26 @@ class _CoveragePageState extends State<CoveragePage> {
                       ],
                     ),
                   ],
+
+                  if (_editingPoints.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text('Editing shape: drag the blue points to adjust the boundary'),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ElevatedButton(
+                          onPressed: _editingPoints.length >= 3 ? _saveVertexEdit : null,
+                          child: const Text('Save Shape'),
+                        ),
+                        TextButton(
+                          onPressed: _cancelVertexEdit,
+                          child: const Text('Cancel Shape Edit'),
+                        ),
+                      ],
+                    ),
+                  ]
                 ],
               ),
             ),
@@ -859,7 +1142,10 @@ class _CoveragePageState extends State<CoveragePage> {
               onTap: _isEditMode ? _addDraftPoint : null,
               polylines: _isEditMode ? {} : _buildRunPolylines(),
               polygons: _buildZonePolygons(),
-              markers: _isEditMode ? _buildDraftMarkers() : {},
+              markers: {
+                ...(_isEditMode && _isDrawing ? _buildDraftMarkers() : <Marker>{}),
+                ...(_isEditMode && _editingPoints.isNotEmpty ? _buildEditMarkers() : <Marker>{}),
+              },
               myLocationEnabled: false,
               zoomControlsEnabled: true,
             ),
