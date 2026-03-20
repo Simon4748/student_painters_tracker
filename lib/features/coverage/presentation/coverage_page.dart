@@ -870,9 +870,14 @@ class _CoveragePageState extends State<CoveragePage> {
         Marker(
           markerId: MarkerId('draft_point_$i'),
           position: _draftPoints[i],
+          draggable: true,
           icon: _draftPointIcon ?? BitmapDescriptor.defaultMarker,
           anchor: const Offset(0.5, 0.5),
-          infoWindow: InfoWindow(title: 'Point ${i + 1}'),
+          onDragEnd: (newPosition) {
+            setState(() {
+              _draftPoints[i] = newPosition;
+            });
+          },
         ),
       );
     }
