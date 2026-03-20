@@ -31,7 +31,6 @@ class _CoveragePageState extends State<CoveragePage> {
   final List<LatLng> _draftPoints = [];
 
   final TextEditingController _zoneNameController = TextEditingController();
-  String? _selectedParentZoneId;
 
   String? _editingZoneId;
   String? _editingSubzoneId;
@@ -120,6 +119,8 @@ class _CoveragePageState extends State<CoveragePage> {
 
     showModalBottomSheet(
       context: context,
+      isDismissible: true,
+      enableDrag: true,
       builder: (context) {
         return Padding(
           padding: const EdgeInsets.all(16),
@@ -134,16 +135,13 @@ class _CoveragePageState extends State<CoveragePage> {
               const SizedBox(height: 8),
               Text('Status: ${subzone.status.name}'),
               const SizedBox(height: 16),
-
-
               OutlinedButton(
                 onPressed: () {
                   _setManualCoverage(subzone, ZoneCoverageStatus.uncovered);
                   Navigator.pop(context);
                 },
-                  child: const Text('Reset to Uncovered'),
-                ),
-
+                child: const Text('Reset to Uncovered'),
+              ),
               ElevatedButton(
                 onPressed: () {
                   _setManualCoverage(subzone, ZoneCoverageStatus.partial);
@@ -151,7 +149,6 @@ class _CoveragePageState extends State<CoveragePage> {
                 },
                 child: const Text('Mark Partially Covered'),
               ),
-
               ElevatedButton(
                 onPressed: () {
                   _setManualCoverage(subzone, ZoneCoverageStatus.full);
@@ -160,7 +157,7 @@ class _CoveragePageState extends State<CoveragePage> {
                 child: const Text('Mark Fully Covered'),
               ),
             ],
-         ),
+          ),
         );
       },
     ).whenComplete(() {
@@ -181,7 +178,6 @@ class _CoveragePageState extends State<CoveragePage> {
     setState(() {
       CoverageDemoData.subzones[index] = TerritorySubzone(
         id: subzone.id,
-        zoneId: subzone.zoneId,
         name: subzone.name,
         branchId: subzone.branchId,
         points: subzone.points,
@@ -232,111 +228,90 @@ class _CoveragePageState extends State<CoveragePage> {
     if (_draftPoints.length < 3 || _drawingMode == null) return;
 
     _zoneNameController.clear();
-    _selectedParentZoneId = CoverageDemoData.zones.isNotEmpty
-        ? CoverageDemoData.zones.first.id
-        : null;
+
+    setState(() {
+      _isMenuOpen = true;
+    });
 
     showDialog<void>(
       context: context,
+      barrierDismissible: true,
       builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final isSubzone = _drawingMode == 'subzone';
+        final isSubzone = _drawingMode == 'subzone';
 
-            return AlertDialog(
-              title: Text(isSubzone ? 'Save Subzone' : 'Save Zone'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: _zoneNameController,
-                    decoration: InputDecoration(
-                      labelText: isSubzone ? 'Subzone Name' : 'Zone Name',
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
-                  if (isSubzone) ...[
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _selectedParentZoneId,
-                      decoration: const InputDecoration(
-                        labelText: 'Parent Zone',
-                        border: OutlineInputBorder(),
+        return AlertDialog(
+          title: Text(isSubzone ? 'Save Subzone' : 'Save Zone'),
+          content: TextField(
+            controller: _zoneNameController,
+            decoration: InputDecoration(
+              labelText: isSubzone ? 'Subzone Name' : 'Zone Name',
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final name = _zoneNameController.text.trim();
+                if (name.isEmpty) return;
+
+                setState(() {
+                  if (_drawingMode == 'zone') {
+                    CoverageDemoData.zones.add(
+                      TerritoryZone(
+                        id: 'zone_${DateTime.now().millisecondsSinceEpoch}',
+                        name: name,
+                        branchId: CoverageDemoData.branchId,
+                        points: List<LatLng>.from(_draftPoints),
                       ),
-                      items: CoverageDemoData.zones.map((zone) {
-                        return DropdownMenuItem<String>(
-                          value: zone.id,
-                          child: Text(zone.name),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setDialogState(() {
-                          _selectedParentZoneId = value;
-                        });
-                      },
-                    ),
-                  ],
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    final name = _zoneNameController.text.trim();
-                    if (name.isEmpty) return;
-                    if (isSubzone && _selectedParentZoneId == null) return;
+                    );
+                  } else {
+                    CoverageDemoData.subzones.add(
+                      TerritorySubzone(
+                        id: 'subzone_${DateTime.now().millisecondsSinceEpoch}',
+                        name: name,
+                        branchId: CoverageDemoData.branchId,
+                        points: List<LatLng>.from(_draftPoints),
+                        status: ZoneCoverageStatus.uncovered,
+                        manualOverride: false,
+                      ),
+                    );
+                  }
 
-                    setState(() {
-                      if (_drawingMode == 'zone') {
-                        CoverageDemoData.zones.add(
-                          TerritoryZone(
-                            id: 'zone_${DateTime.now().millisecondsSinceEpoch}',
-                            name: name,
-                            branchId: CoverageDemoData.branchId,
-                            points: List<LatLng>.from(_draftPoints),
-                          ),
-                        );
-                      } else {
-                        CoverageDemoData.subzones.add(
-                          TerritorySubzone(
-                            id: 'subzone_${DateTime.now().millisecondsSinceEpoch}',
-                            zoneId: _selectedParentZoneId!,
-                            name: name,
-                            branchId: CoverageDemoData.branchId,
-                            points: List<LatLng>.from(_draftPoints),
-                            status: ZoneCoverageStatus.uncovered,
-                            manualOverride: false,
-                          ),
-                        );
-                      }
+                  _drawingMode = null;
+                  _draftPoints.clear();
+                });
 
-                      _drawingMode = null;
-                      _draftPoints.clear();
-                    });
-
-                    Navigator.of(context).pop();
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
+                Navigator.of(context).pop();
+              },
+              child: const Text('Save'),
+            ),
+          ],
         );
       },
-    );
+    ).whenComplete(() {
+      if (!mounted) return;
+
+      setState(() {
+        _isMenuOpen = false;
+      });
+    });
   }
 
   void _showZoneEditPanel(TerritoryZone zone) {
-
-      setState(() {
-        _isMenuOpen = true;
-      });
+    setState(() {
+      _isMenuOpen = true;
+    });
 
     showModalBottomSheet(
       context: context,
+      isDismissible: true,
+      enableDrag: true,
       builder: (context) {
         return Padding(
           padding: const EdgeInsets.all(16),
@@ -375,7 +350,7 @@ class _CoveragePageState extends State<CoveragePage> {
         );
       },
     ).whenComplete(() {
-      if(!mounted) return;
+      if (!mounted) return;
       setState(() {
         _isMenuOpen = false;
       });
@@ -383,13 +358,15 @@ class _CoveragePageState extends State<CoveragePage> {
   }
 
   void _showSubzoneEditPanel(TerritorySubzone subzone) {
-
+    
     setState(() {
       _isMenuOpen = true;
     });
 
     showModalBottomSheet(
       context: context,
+      isDismissible: true,
+      enableDrag: true,
       builder: (context) {
         return Padding(
           padding: const EdgeInsets.all(16),
@@ -409,7 +386,7 @@ class _CoveragePageState extends State<CoveragePage> {
                   Navigator.pop(context);
                   _beginSubzoneVertexEdit(subzone);
                 },
-                child: const Text('Edit Zone Shape'),
+                child: const Text('Edit Subzone Shape'),
               ),
               ElevatedButton(
                 onPressed: () {
@@ -417,13 +394,6 @@ class _CoveragePageState extends State<CoveragePage> {
                   _renameSubzone(subzone);
                 },
                 child: const Text('Edit Zone Name'),
-              ),
-              OutlinedButton(
-                onPressed: () {
-                  _setManualCoverage(subzone, ZoneCoverageStatus.uncovered);
-                  Navigator.pop(context);
-                },
-                child: const Text('Manual: Uncovered'),
               ),
               ElevatedButton(
                 onPressed: () {
@@ -437,7 +407,14 @@ class _CoveragePageState extends State<CoveragePage> {
                   _setManualCoverage(subzone, ZoneCoverageStatus.full);
                   Navigator.pop(context);
                 },
-                child: const Text('Manual: Covered'),
+                child: const Text('Manual: Full'),
+              ),
+              OutlinedButton(
+                onPressed: () {
+                  _setManualCoverage(subzone, ZoneCoverageStatus.uncovered);
+                  Navigator.pop(context);
+                },
+                child: const Text('Manual: Uncovered'),
               ),
               OutlinedButton(
                 onPressed: () {
@@ -451,7 +428,7 @@ class _CoveragePageState extends State<CoveragePage> {
         );
       },
     ).whenComplete(() {
-      if(!mounted) return;
+      if (!mounted) return;
       setState(() {
         _isMenuOpen = false;
       });
@@ -550,7 +527,6 @@ class _CoveragePageState extends State<CoveragePage> {
               setState(() {
                 CoverageDemoData.subzones[index] = TerritorySubzone(
                   id: subzone.id,
-                  zoneId: subzone.zoneId,
                   name: newName,
                   branchId: subzone.branchId,
                   points: subzone.points,
@@ -583,7 +559,7 @@ class _CoveragePageState extends State<CoveragePage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Zone'),
-        content: Text('Delete "${zone.name}" and its subzones?'),
+        content: Text('Delete "${zone.name}"?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -593,8 +569,6 @@ class _CoveragePageState extends State<CoveragePage> {
             onPressed: () {
               setState(() {
                 CoverageDemoData.zones.removeWhere((z) => z.id == zone.id);
-                CoverageDemoData.subzones
-                    .removeWhere((s) => s.zoneId == zone.id);
               });
               Navigator.of(context).pop();
             },
@@ -694,7 +668,6 @@ class _CoveragePageState extends State<CoveragePage> {
           final subzone = CoverageDemoData.subzones[index];
           CoverageDemoData.subzones[index] = TerritorySubzone(
             id: subzone.id,
-            zoneId: subzone.zoneId,
             name: subzone.name,
             branchId: subzone.branchId,
             points: List<LatLng>.from(_editingPoints),
@@ -714,13 +687,13 @@ class _CoveragePageState extends State<CoveragePage> {
     final draft = await _createCircleMarkerIcon(
       fillColor: Colors.red,
       strokeColor: Colors.white,
-      diameter: 16,
+      diameter: 14,
     );
 
     final edit = await _createCircleMarkerIcon(
       fillColor: Colors.blue,
       strokeColor: Colors.white,
-      diameter: 16,
+      diameter: 14,
     );
 
     if (!mounted) return;
@@ -800,7 +773,7 @@ class _CoveragePageState extends State<CoveragePage> {
   }
 
   Set<Polygon> _buildZonePolygons() {
-    if (!_showZones) return {};
+    if (!_showZones && !_isEditMode) return {};
 
     final Set<Polygon> polygons = {};
 
@@ -852,9 +825,9 @@ class _CoveragePageState extends State<CoveragePage> {
         Polygon(
           polygonId: const PolygonId('draft_polygon'),
           points: _draftPoints,
-          strokeColor: Colors.orange,
+          strokeColor: Colors.red,
           strokeWidth: 3,
-          fillColor: Colors.orange.withOpacity(0.2),
+          fillColor: Colors.red.withOpacity(0.18),
         ),
       );
     }
@@ -864,14 +837,27 @@ class _CoveragePageState extends State<CoveragePage> {
         Polygon(
           polygonId: const PolygonId('editing_polygon'),
           points: _editingPoints,
-          strokeColor: Colors.deepPurple,
+          strokeColor: Colors.red,
           strokeWidth: 3,
-          fillColor: Colors.deepPurple.withOpacity(0.18),
+          fillColor: Colors.red.withOpacity(0.18),
         ),
       );
     }
 
     return polygons;
+  }
+
+  Set<Polyline> _buildDraftPolylines() {
+    if (_draftPoints.length < 2) return {};
+
+    return {
+      Polyline(
+        polylineId: const PolylineId('draft_line'),
+        points: _draftPoints,
+        color: Colors.red,
+        width: 3,
+      ),
+    };
   }
 
   Set<Marker> _buildDraftMarkers() {
@@ -1084,8 +1070,8 @@ class _CoveragePageState extends State<CoveragePage> {
 
                     Text(
                       _drawingMode == 'zone'
-                          ? 'Drawing new zone: tap map to add points'
-                          : 'Drawing new subzone: tap map to add points',
+                          ? 'Tap map to draw zone. Then finish and name it.'
+                          : 'Tap map to draw subzone. Then finish and name it.',
                     ),
 
                     const SizedBox(height: 8),
@@ -1100,8 +1086,8 @@ class _CoveragePageState extends State<CoveragePage> {
                         ),
                         ElevatedButton(
                           onPressed:
-                              _draftPoints.length >= 3 ? _saveDraftPolygon : null,
-                          child: const Text('Save'),
+                            _draftPoints.length >= 3 ? _saveDraftPolygon : null,
+                          child: const Text('Finish & Name'),
                         ),
                         TextButton(
                           onPressed: _cancelDrawing,
@@ -1139,12 +1125,19 @@ class _CoveragePageState extends State<CoveragePage> {
                 target: LatLng(42.8120, -72.5450),
                 zoom: 12,
               ),
-              onTap: _isEditMode ? _addDraftPoint : null,
-              polylines: _isEditMode ? {} : _buildRunPolylines(),
+              onTap: (_isEditMode && _isDrawing && !_isMenuOpen)
+                ? _addDraftPoint
+                : null,
+              polylines: {
+                ...(_isEditMode ? <Polyline>{} : _buildRunPolylines()),
+                ...(_isDrawing ? _buildDraftPolylines() : <Polyline>{}),
+              },
               polygons: _buildZonePolygons(),
               markers: {
                 ...(_isEditMode && _isDrawing ? _buildDraftMarkers() : <Marker>{}),
-                ...(_isEditMode && _editingPoints.isNotEmpty ? _buildEditMarkers() : <Marker>{}),
+                ...(_isEditMode && _editingPoints.isNotEmpty
+                    ? _buildEditMarkers()
+                    : <Marker>{}),
               },
               myLocationEnabled: false,
               zoomControlsEnabled: true,

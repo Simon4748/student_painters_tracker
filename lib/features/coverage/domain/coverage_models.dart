@@ -47,7 +47,6 @@ class TerritoryZone {
 
 class TerritorySubzone {
   final String id;
-  final String zoneId;
   final String name;
   final String branchId;
   final List<LatLng> points;
@@ -56,7 +55,6 @@ class TerritorySubzone {
 
   const TerritorySubzone({
     required this.id,
-    required this.zoneId,
     required this.name,
     required this.branchId,
     required this.points,

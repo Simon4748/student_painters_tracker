@@ -61,7 +61,6 @@ class CoverageDemoData {
   static final List<TerritorySubzone> subzones = [
     TerritorySubzone(
       id: 'subzone_1a',
-      zoneId: 'zone_west_brattleboro',
       name: '1A',
       branchId: branchId,
       status: ZoneCoverageStatus.uncovered,
@@ -74,7 +73,6 @@ class CoverageDemoData {
     ),
     TerritorySubzone(
       id: 'subzone_1b',
-      zoneId: 'zone_west_brattleboro',
       name: '1B',
       branchId: branchId,
       status: ZoneCoverageStatus.partial,
@@ -86,12 +84,11 @@ class CoverageDemoData {
       ],
     ),
     TerritorySubzone(
-      id: 'subzone_1c',
-      zoneId: 'zone_east_brattleboro',
-      name: '1C',
-      branchId: branchId,
-      status: ZoneCoverageStatus.full,
-      points: const [
+        id: 'subzone_1a',
+        name: '1A',
+        branchId: branchId,
+        status: ZoneCoverageStatus.uncovered,
+        points: const [
         LatLng(42.8120, -72.5200),
         LatLng(42.8120, -72.4980),
         LatLng(42.7980, -72.4980),
