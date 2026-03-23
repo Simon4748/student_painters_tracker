@@ -23,6 +23,7 @@ class _CoveragePageState extends State<CoveragePage> {
 
   BitmapDescriptor? _draftPointIcon;
   BitmapDescriptor? _editPointIcon;
+  BitmapDescriptor? _midpointIcon;
 
   final UserRole _currentUserRole = UserRole.branchManager;
   bool _isEditMode = false;
@@ -696,11 +697,18 @@ class _CoveragePageState extends State<CoveragePage> {
       diameter: 14,
     );
 
+    final midpoint = await _createCircleMarkerIcon(
+      fillColor: Colors.red.withOpacity(0.55),
+      strokeColor: Colors.white,
+      diameter: 10,
+    );
+
     if (!mounted) return;
 
     setState(() {
       _draftPointIcon = draft;
       _editPointIcon = edit;
+      _midpointIcon = midpoint;
     });
   }
 
@@ -1140,8 +1148,14 @@ class _CoveragePageState extends State<CoveragePage> {
               polygons: _buildZonePolygons(),
               markers: {
                 ...(_isEditMode && _isDrawing ? _buildDraftMarkers() : <Marker>{}),
+                ...(_isEditMode && _isDrawing && _draftPoints.length >= 2
+                    ? _buildDraftMidpointMarkers()
+                    : <Marker>{}),
                 ...(_isEditMode && _editingPoints.isNotEmpty
                     ? _buildEditMarkers()
+                    : <Marker>{}),
+                ...(_isEditMode && _editingPoints.length >= 2
+                    ? _buildEditMidpointMarkers()
                     : <Marker>{}),
               },
               myLocationEnabled: false,
@@ -1152,4 +1166,110 @@ class _CoveragePageState extends State<CoveragePage> {
       ),
     );
   }
+
+  // Midpoint markers:
+
+  LatLng _midpoint(LatLng a, LatLng b) {
+    return LatLng(
+      (a.latitude + b.latitude) / 2,
+      (a.longitude + b.longitude) / 2,
+    );
+  }
+
+  Set<Marker> _buildEditMidpointMarkers() {
+    if (_editingPoints.length < 2) return {};
+
+    final markers = <Marker>{};
+
+    for (int i = 0; i < _editingPoints.length; i++) {
+      final int nextIndex = (i + 1) % _editingPoints.length;
+
+      final LatLng a = _editingPoints[i];
+      final LatLng b = _editingPoints[nextIndex];
+      final LatLng midpoint = _midpoint(a, b);
+
+      markers.add(
+        Marker(
+          markerId: MarkerId('edit_midpoint_$i'),
+          position: midpoint,
+          draggable: true,
+          icon: _midpointIcon ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          alpha: 0.45,
+          anchor: const Offset(0.5, 0.5),
+          onDragStart: (_) {
+            final int insertionIndex = i + 1;
+
+            setState(() {
+              _editingPoints.insert(insertionIndex, midpoint);
+            });
+          },
+          onDragEnd: (newPosition) {
+            final int insertionIndex = i + 1;
+
+            setState(() {
+              if (insertionIndex < _editingPoints.length) {
+                _editingPoints[insertionIndex] = newPosition;
+              }
+            });
+          },
+        ),
+      );
+    }
+
+    return markers;
+  }
+
+  Set<Marker> _buildDraftMidpointMarkers() {
+    if (_draftPoints.length < 2) return {};
+
+    final markers = <Marker>{};
+
+    final int segmentCount =
+        _draftPoints.length >= 3 ? _draftPoints.length : _draftPoints.length - 1;
+
+    for (int i = 0; i < segmentCount; i++) {
+      final int nextIndex = (i + 1) % _draftPoints.length;
+
+      if (_draftPoints.length < 3 && nextIndex == 0) {
+        continue;
+      }
+
+      final LatLng a = _draftPoints[i];
+      final LatLng b = _draftPoints[nextIndex];
+      final LatLng midpoint = _midpoint(a, b);
+
+      markers.add(
+        Marker(
+          markerId: MarkerId('draft_midpoint_$i'),
+          position: midpoint,
+          draggable: true,
+          icon: _midpointIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          alpha: 0.45,
+          anchor: const Offset(0.5, 0.5),
+          onDragStart: (_) {
+            final int insertionIndex = i + 1;
+
+            setState(() {
+              _draftPoints.insert(insertionIndex, midpoint);
+            });
+          },
+          onDragEnd: (newPosition) {
+            final int insertionIndex = i + 1;
+
+            setState(() {
+              if (insertionIndex < _draftPoints.length) {
+                _draftPoints[insertionIndex] = newPosition;
+              }
+            });
+          },
+        ),
+      );
+    }
+
+    return markers;
+  }
+
+
 }
