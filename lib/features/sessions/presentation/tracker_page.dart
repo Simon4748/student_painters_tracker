@@ -7,6 +7,9 @@ import '../domain/session_type.dart';
 import '../../../shared/models/tracked_session.dart';
 import '../../../shared/models/session_store.dart';
 
+import '../../../shared/models/feed_item.dart';
+import '../../../shared/models/feed_store.dart';
+
 class TrackerPage extends StatefulWidget {
   const TrackerPage({super.key});
 
@@ -34,6 +37,14 @@ class _TrackerPageState extends State<TrackerPage> {
     LatLng(42.3520, -71.0990),
     LatLng(42.3525, -71.1002),
   ];
+
+  //DEMO:
+  final String _currentUserId = 'manager_1';
+  final String _currentUserName = 'Simon';
+  final String _currentUserRole = 'Branch Manager';
+  final String _currentBranchId = 'brattleboro_branch';
+  final String _currentBranchName = 'Brattleboro Branch';
+  final String _currentDivisionName = 'New England';
 
   @override
   void dispose() {
@@ -98,6 +109,23 @@ class _TrackerPageState extends State<TrackerPage> {
       );
 
       SessionStore.sessions.insert(0, session);
+
+      final feedItem = FeedItem(
+        id: 'run_${DateTime.now().millisecondsSinceEpoch}',
+        type: FeedItemType.run,
+        authorId: _currentUserId,
+        authorName: _currentUserName,
+        authorRole: _currentUserRole,
+        branchId: _currentBranchId,
+        branchName: _currentBranchName,
+        divisionName: _currentDivisionName,
+        createdAt: DateTime.now(),
+        sessionType: type,
+        runDuration: elapsed,
+        routePointCount: _routePoints.length,
+      );
+
+      FeedStore.items.insert(0, feedItem);
     }
 
     showDialog<void>(
