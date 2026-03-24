@@ -24,6 +24,7 @@ class _CoveragePageState extends State<CoveragePage> {
   BitmapDescriptor? _draftPointIcon;
   BitmapDescriptor? _editPointIcon;
   BitmapDescriptor? _midpointIcon;
+  BitmapDescriptor? _mergeHighlightIcon;
 
   final UserRole _currentUserRole = UserRole.branchManager;
   bool _isEditMode = false;
@@ -38,6 +39,12 @@ class _CoveragePageState extends State<CoveragePage> {
   List<LatLng> _editingPoints = [];
 
   bool _isMenuOpen = false;
+
+  // For merging two verticies, test different numbers
+  static const double _mergeThreshold = 0.0003;
+
+  int? _highlightDraftMergeIndex;
+  int? _highlightEditMergeIndex;
 
   bool get _canEditZones {
     return _currentUserRole == UserRole.branchManager ||
@@ -70,8 +77,13 @@ class _CoveragePageState extends State<CoveragePage> {
   }
 
   void _deleteAllZones() {
+    setState(() {
+      _isMenuOpen = true;
+    });
+
     showDialog<void>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('Delete All Zones'),
         content: const Text(
@@ -79,7 +91,9 @@ class _CoveragePageState extends State<CoveragePage> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
             child: const Text('Cancel'),
           ),
           TextButton(
@@ -87,6 +101,11 @@ class _CoveragePageState extends State<CoveragePage> {
               setState(() {
                 CoverageDemoData.zones.clear();
                 CoverageDemoData.subzones.clear();
+                _draftPoints.clear();
+                _editingPoints.clear();
+                _drawingMode = null;
+                _editingZoneId = null;
+                _editingSubzoneId = null;
               });
               Navigator.of(context).pop();
             },
@@ -94,7 +113,13 @@ class _CoveragePageState extends State<CoveragePage> {
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      if (!mounted) return;
+
+      setState(() {
+        _isMenuOpen = false;
+      });
+    });
   }
 
   @override
@@ -206,6 +231,7 @@ class _CoveragePageState extends State<CoveragePage> {
     setState(() {
       _drawingMode = null;
       _draftPoints.clear();
+      _highlightDraftMergeIndex = null;
     });
   }
 
@@ -286,6 +312,7 @@ class _CoveragePageState extends State<CoveragePage> {
 
                   _drawingMode = null;
                   _draftPoints.clear();
+                  _highlightDraftMergeIndex = null;
                 });
 
                 Navigator.of(context).pop();
@@ -645,6 +672,7 @@ class _CoveragePageState extends State<CoveragePage> {
       _editingZoneId = null;
       _editingSubzoneId = null;
       _editingPoints.clear();
+      _highlightEditMergeIndex = null;
     });
   }
 
@@ -681,6 +709,7 @@ class _CoveragePageState extends State<CoveragePage> {
       _editingZoneId = null;
       _editingSubzoneId = null;
       _editingPoints.clear();
+      _highlightEditMergeIndex = null;
     });
   }
 
@@ -703,12 +732,19 @@ class _CoveragePageState extends State<CoveragePage> {
       diameter: 10,
     );
 
+    final mergeHighlight = await _createCircleMarkerIcon(
+      fillColor: Colors.yellow,
+      strokeColor: Colors.red,
+      diameter: 18,
+    );
+
     if (!mounted) return;
 
     setState(() {
       _draftPointIcon = draft;
       _editPointIcon = edit;
       _midpointIcon = midpoint;
+      _mergeHighlightIcon = mergeHighlight;
     });
   }
 
@@ -786,6 +822,10 @@ class _CoveragePageState extends State<CoveragePage> {
     final Set<Polygon> polygons = {};
 
     for (final zone in CoverageDemoData.zones) {
+      final isEditingThisZone = zone.id == _editingZoneId;
+
+      if (isEditingThisZone && _isEditingShape) continue;
+
       polygons.add(
         Polygon(
           polygonId: PolygonId(zone.id),
@@ -804,6 +844,10 @@ class _CoveragePageState extends State<CoveragePage> {
     }
 
     for (final subzone in CoverageDemoData.subzones) {
+      final isEditingThisSubzone = subzone.id == _editingSubzoneId;
+
+      if (isEditingThisSubzone && _isEditingShape) continue;
+
       polygons.add(
         Polygon(
           polygonId: PolygonId(subzone.id),
@@ -874,17 +918,22 @@ class _CoveragePageState extends State<CoveragePage> {
     final markers = <Marker>{};
 
     for (int i = 0; i < _draftPoints.length; i++) {
+      final isMergeTarget = _highlightDraftMergeIndex == i;
+
       markers.add(
         Marker(
           markerId: MarkerId('draft_point_$i'),
           position: _draftPoints[i],
           draggable: true,
-          icon: _draftPointIcon ?? BitmapDescriptor.defaultMarker,
+          icon: isMergeTarget
+              ? (_mergeHighlightIcon ?? _draftPointIcon ?? BitmapDescriptor.defaultMarker)
+              : (_draftPointIcon ?? BitmapDescriptor.defaultMarker),
           anchor: const Offset(0.5, 0.5),
+          onDrag: (newPosition) {
+            _updateDraftMergeHighlight(i, newPosition);
+          },
           onDragEnd: (newPosition) {
-            setState(() {
-              _draftPoints[i] = newPosition;
-            });
+            _mergeDraftPointIfNeeded(i, newPosition);
           },
         ),
       );
@@ -899,22 +948,26 @@ class _CoveragePageState extends State<CoveragePage> {
     final markers = <Marker>{};
 
     for (int i = 0; i < _editingPoints.length; i++) {
+      final isMergeTarget = _highlightEditMergeIndex == i;
+
       markers.add(
         Marker(
           markerId: MarkerId('edit_point_$i'),
           position: _editingPoints[i],
           draggable: true,
-          icon: _editPointIcon ??
-              BitmapDescriptor.defaultMarkerWithHue(
-                BitmapDescriptor.hueAzure,
-              ),
+          icon: isMergeTarget
+              ? (_mergeHighlightIcon ??
+                  _editPointIcon ??
+                  BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure))
+              : (_editPointIcon ??
+                  BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
           anchor: const Offset(0.5, 0.5),
-          onDragEnd: (newPosition) {
-            setState(() {
-              _editingPoints[i] = newPosition;
-            });
+          onDrag: (newPosition) {
+            _updateEditMergeHighlight(i, newPosition);
           },
-          infoWindow: InfoWindow(title: 'Vertex ${i + 1}'),
+          onDragEnd: (newPosition) {
+            _mergeEditPointIfNeeded(i, newPosition);
+          },
         ),
       );
     }
@@ -1088,6 +1141,8 @@ class _CoveragePageState extends State<CoveragePage> {
                     ),
 
                     const SizedBox(height: 8),
+                    const Text('Drag a point onto another point to merge them.'),
+                    const SizedBox(height: 8),
 
                     Wrap(
                       spacing: 8,
@@ -1113,6 +1168,10 @@ class _CoveragePageState extends State<CoveragePage> {
                   if (_editingPoints.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     const Text('Editing shape: drag the blue points to adjust the boundary'),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Drag a point onto another point to merge them.',
+                    ),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -1269,6 +1328,126 @@ class _CoveragePageState extends State<CoveragePage> {
     }
 
     return markers;
+  }
+
+  // Merging verticies helpers:
+
+  double _pointDistance(LatLng a, LatLng b) {
+    final latDiff = a.latitude - b.latitude;
+    final lngDiff = a.longitude - b.longitude;
+    return (latDiff * latDiff + lngDiff * lngDiff);
+  }
+
+  int? _findMergeTargetIndex({required List<LatLng> points, required int draggingIndex, required LatLng candidatePosition}) {
+    int? bestIndex;
+    double? bestDistance;
+
+    final thresholdSquared = _mergeThreshold * _mergeThreshold;
+
+    for (int i = 0; i < points.length; i++) {
+      if (i == draggingIndex) continue;
+
+      final distance = _pointDistance(candidatePosition, points[i]);
+
+      if (distance <= thresholdSquared) {
+        if (bestDistance == null || distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = i;
+        }
+      }
+    }
+
+    return bestIndex;
+  }
+
+  void _mergeDraftPointIfNeeded(int draggingIndex, LatLng newPosition) {
+    final targetIndex = _findMergeTargetIndex(
+      points: _draftPoints,
+      draggingIndex: draggingIndex,
+      candidatePosition: newPosition,
+    );
+
+    if (targetIndex == null) {
+      setState(() {
+        _draftPoints[draggingIndex] = newPosition;
+        _highlightDraftMergeIndex = null;
+      });
+      return;
+    }
+
+    if (_draftPoints.length <= 3) {
+      setState(() {
+        _draftPoints[draggingIndex] = newPosition;
+        _highlightDraftMergeIndex = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _draftPoints.removeAt(draggingIndex);
+      _highlightDraftMergeIndex = null;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Point merged')),
+    );
+  }
+
+  void _mergeEditPointIfNeeded(int draggingIndex, LatLng newPosition) {
+    final targetIndex = _findMergeTargetIndex(
+      points: _editingPoints,
+      draggingIndex: draggingIndex,
+      candidatePosition: newPosition,
+    );
+
+    if (targetIndex == null) {
+      setState(() {
+        _editingPoints[draggingIndex] = newPosition;
+        _highlightEditMergeIndex = null;
+      });
+      return;
+    }
+
+    if (_editingPoints.length <= 3) {
+      setState(() {
+        _editingPoints[draggingIndex] = newPosition;
+        _highlightEditMergeIndex = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _editingPoints.removeAt(draggingIndex);
+      _highlightEditMergeIndex = null;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Point merged')),
+    );
+  }
+
+  void _updateDraftMergeHighlight(int draggingIndex, LatLng currentPosition) {
+    final targetIndex = _findMergeTargetIndex(
+      points: _draftPoints,
+      draggingIndex: draggingIndex,
+      candidatePosition: currentPosition,
+    );
+
+    setState(() {
+      _highlightDraftMergeIndex = targetIndex;
+    });
+  }
+
+  void _updateEditMergeHighlight(int draggingIndex, LatLng currentPosition) {
+    final targetIndex = _findMergeTargetIndex(
+      points: _editingPoints,
+      draggingIndex: draggingIndex,
+      candidatePosition: currentPosition,
+    );
+
+    setState(() {
+      _highlightEditMergeIndex = targetIndex;
+    });
   }
 
 
