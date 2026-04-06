@@ -10,6 +10,12 @@ import '../../../shared/models/session_store.dart';
 import '../../../shared/models/feed_item.dart';
 import '../../../shared/models/feed_store.dart';
 
+import 'dart:typed_data';
+import 'package:image_picker/image_picker.dart';
+
+import '../../../shared/models/feed_item.dart';
+import '../../../shared/models/feed_store.dart';
+
 class TrackerPage extends StatefulWidget {
   const TrackerPage({super.key});
 
@@ -38,13 +44,17 @@ class _TrackerPageState extends State<TrackerPage> {
     LatLng(42.3525, -71.1002),
   ];
 
+  final ImagePicker _imagePicker = ImagePicker();
   //DEMO:
+
   final String _currentUserId = 'manager_1';
   final String _currentUserName = 'Simon';
   final String _currentUserRole = 'Branch Manager';
   final String _currentBranchId = 'brattleboro_branch';
   final String _currentBranchName = 'Brattleboro Branch';
   final String _currentDivisionName = 'New England';
+
+  Uint8List? _runPhotoBytes;
 
   @override
   void dispose() {
@@ -93,7 +103,48 @@ class _TrackerPageState extends State<TrackerPage> {
     });
   }
 
-  void _stopSession() {
+  Future<void> _stopSession() async {
+    _timer?.cancel();
+
+    if (_runPhotoBytes != null) {
+      _finalizeStoppedSession();
+      return;
+    }
+
+    final shouldAddPhoto = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add a photo to this run?'),
+        content: const Text(
+          'Photos make feed posts more useful, but adding one is optional.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop(false);
+            },
+            child: const Text('Skip'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop(true);
+            },
+            child: const Text('Add Photo'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldAddPhoto == true) {
+      await _pickRunPhoto();
+    }
+
+    if (!mounted) return;
+
+    _finalizeStoppedSession();
+  }
+
+  void _finalizeStoppedSession() {
     _timer?.cancel();
 
     final type = _selectedSessionType;
@@ -123,6 +174,8 @@ class _TrackerPageState extends State<TrackerPage> {
         sessionType: type,
         runDuration: elapsed,
         routePointCount: _routePoints.length,
+        routePoints: List<LatLng>.from(_routePoints),
+        coverPhotoBytes: _runPhotoBytes,
       );
 
       FeedStore.items.insert(0, feedItem);
@@ -160,6 +213,7 @@ class _TrackerPageState extends State<TrackerPage> {
       _isPaused = false;
       _routePoints.clear();
       _currentRouteIndex = 0;
+      _runPhotoBytes = null;
     });
   }
 
@@ -196,6 +250,32 @@ class _TrackerPageState extends State<TrackerPage> {
     return '$hours:$minutes:$seconds';
   }
 
+  Future<bool> _pickRunPhoto() async {
+    final file = await _imagePicker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 75,
+      maxWidth: 1600,
+    );
+
+    if (file == null) return false;
+
+    final bytes = await file.readAsBytes();
+
+    if (!mounted) return false;
+
+    setState(() {
+      _runPhotoBytes = bytes;
+    });
+
+    return true;
+  }
+
+  void _removeRunPhoto() {
+    setState(() {
+      _runPhotoBytes = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final canStart =
@@ -209,112 +289,177 @@ class _TrackerPageState extends State<TrackerPage> {
         title: const Text('Tracker'),
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Session Type',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<SessionType>(
-                value: _selectedSessionType,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: 'Select a session type',
-                ),
-                items: SessionType.values.map((type) {
-                  return DropdownMenuItem<SessionType>(
-                    value: type,
-                    child: Text(type.label),
-                  );
-                }).toList(),
-                onChanged: (_isRunning || _isPaused)
-                    ? null
-                    : (value) {
-                        setState(() {
-                          _selectedSessionType = value;
-                        });
-                      },
-              ),
-              const SizedBox(height: 24),
-              Center(
+        child: Column(
+          children: [
+            // ===== SCROLLABLE CONTENT =====
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Elapsed Time',
+                      'Session Type',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<SessionType>(
+                      value: _selectedSessionType,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: 'Select a session type',
+                      ),
+                      items: SessionType.values.map((type) {
+                        return DropdownMenuItem<SessionType>(
+                          value: type,
+                          child: Text(type.label),
+                        );
+                      }).toList(),
+                      onChanged: (_isRunning || _isPaused)
+                          ? null
+                          : (value) {
+                              setState(() {
+                                _selectedSessionType = value;
+                              });
+                            },
+                    ),
+                    const SizedBox(height: 24),
+
+                    Center(
+                      child: Column(
+                        children: [
+                          Text(
+                            'Elapsed Time',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _formatDuration(_elapsed),
+                            style: Theme.of(context).textTheme.displaySmall,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _isRunning
+                                ? 'Running'
+                                : _isPaused
+                                    ? 'Paused'
+                                    : 'Not Started',
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    SizedBox(
+                      height: 220,
+                      width: double.infinity,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: GoogleMap(
+                          onMapCreated: (controller) {
+                            _mapController = controller;
+                          },
+                          initialCameraPosition: const CameraPosition(
+                            target: LatLng(42.3505, -71.1005),
+                            zoom: 15,
+                          ),
+                          polylines: _buildPolylines(),
+                          myLocationEnabled: false,
+                          zoomControlsEnabled: false,
+                        ),
+                      ),
+                    ),
+
+                    // ===== RUN PHOTO SECTION =====
+                    const SizedBox(height: 16),
+                    Text(
+                      'Run Photo (Optional)',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _formatDuration(_elapsed),
-                      style: Theme.of(context).textTheme.displaySmall,
+                      'Adding a photo is encouraged, but not required.',
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      _isRunning
-                          ? 'Running'
-                          : _isPaused
-                              ? 'Paused'
-                              : 'Not Started',
+
+                    if (_runPhotoBytes != null)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.memory(
+                          _runPhotoBytes!,
+                          height: 180,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+
+                    const SizedBox(height: 8),
+
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _pickRunPhoto,
+                          icon: const Icon(Icons.camera_alt),
+                          label: Text(
+                            _runPhotoBytes == null ? 'Add Photo' : 'Change Photo',
+                          ),
+                        ),
+                        if (_runPhotoBytes != null)
+                          OutlinedButton(
+                            onPressed: _removeRunPhoto,
+                            child: const Text('Remove Photo'),
+                          ),
+                      ],
                     ),
+
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
-              SizedBox(
-                height: 220,
-                width: double.infinity,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: GoogleMap(
-                    onMapCreated: (controller) {
-                      _mapController = controller;
-                    },
-                    initialCameraPosition: const CameraPosition(
-                      target: LatLng(42.3505, -71.1005),
-                      zoom: 15,
-                    ),
-                    polylines: _buildPolylines(),
-                    myLocationEnabled: false,
-                    zoomControlsEnabled: false,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
+            ),
+
+            // ===== FIXED BUTTON SECTION =====
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Column(
                 children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: canStart ? _startSession : null,
-                      child: const Text('Start'),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: canStart ? _startSession : null,
+                          child: const Text('Start'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: canPause
+                              ? _pauseSession
+                              : canResume
+                                  ? _resumeSession
+                                  : null,
+                          child: Text(canResume ? 'Resume' : 'Pause'),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: canPause
-                          ? _pauseSession
-                          : canResume
-                              ? _resumeSession
-                              : null,
-                      child: Text(canResume ? 'Resume' : 'Pause'),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: canStop ? _stopSession : null,
+                      child: const Text('Stop'),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: canStop ? _stopSession : null,
-                  child: const Text('Stop'),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
