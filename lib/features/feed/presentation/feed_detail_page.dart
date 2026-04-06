@@ -143,6 +143,7 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
     _replyingToName = null;
 
     setState(() {});
+    FocusScope.of(context).unfocus();
   }
 
   void _startReply(FeedComment comment) {

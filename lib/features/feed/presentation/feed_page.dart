@@ -139,12 +139,18 @@ class _FeedPageState extends State<FeedPage> {
                     child: Text('No feed items yet'),
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
-                    itemCount: items.length,
-                    itemBuilder: (context, index) {
-                      return FeedItemCard(item: items[index]);
-                    },
-                  ),
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    return FeedItemCard(
+                      item: items[index],
+                      onChanged: () {
+                        if (!mounted) return;
+                        setState(() {});
+                      },
+                    );
+                  },
+                )
           ),
         ],
       ),
