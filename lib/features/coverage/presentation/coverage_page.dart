@@ -4,6 +4,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../data/coverage_demo_data.dart';
 import '../domain/coverage_models.dart';
 import '../../sessions/domain/session_type.dart';
+import 'coverage_map_widget.dart';
+import 'coverage_toolbar.dart';
+import 'coverage_panels.dart';
 
 import 'dart:ui' as ui;
 import 'dart:typed_data';
@@ -29,7 +32,7 @@ class _CoveragePageState extends State<CoveragePage> {
   final UserRole _currentUserRole = UserRole.branchManager;
   bool _isEditMode = false;
 
-  String? _drawingMode; // 'zone' or 'subzone'
+  String? _drawingMode;
   final List<LatLng> _draftPoints = [];
 
   final TextEditingController _zoneNameController = TextEditingController();
@@ -40,81 +43,29 @@ class _CoveragePageState extends State<CoveragePage> {
 
   bool _isMenuOpen = false;
 
-  // For merging two verticies, test different numbers
   static const double _mergeThreshold = 0.0003;
 
   int? _highlightDraftMergeIndex;
   int? _highlightEditMergeIndex;
 
-  bool get _canEditZones {
-    return _currentUserRole == UserRole.branchManager ||
-        _currentUserRole == UserRole.generalManager ||
-        _currentUserRole == UserRole.executive;
-  }
+  bool get _canEditZones =>
+      _currentUserRole == UserRole.branchManager ||
+      _currentUserRole == UserRole.generalManager ||
+      _currentUserRole == UserRole.executive;
 
-  bool get _isDrawing {
-    return _drawingMode != null;
-  }
+  bool get _isDrawing => _drawingMode != null;
 
-  bool get _isEditingShape {
-    return _editingZoneId != null || _editingSubzoneId != null;
-  }
+  bool get _isEditingShape =>
+      _editingZoneId != null || _editingSubzoneId != null;
 
-  bool get _isInteractionLocked {
-    return _isMenuOpen || _isDrawing || _isEditingShape;
-  }
-
-  void _deleteAllZones() {
-    setState(() {
-      _isMenuOpen = true;
-    });
-
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete All Zones'),
-        content: const Text(
-          'Are you sure you want to delete all zones and subzones?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                CoverageDemoData.zones.clear();
-                CoverageDemoData.subzones.clear();
-                _draftPoints.clear();
-                _editingPoints.clear();
-                _drawingMode = null;
-                _editingZoneId = null;
-                _editingSubzoneId = null;
-              });
-              Navigator.of(context).pop();
-            },
-            child: const Text('Delete All'),
-          ),
-        ],
-      ),
-    ).whenComplete(() {
-      if (!mounted) return;
-
-      setState(() {
-        _isMenuOpen = false;
-      });
-    });
-  }
+  bool get _isInteractionLocked =>
+      _isMenuOpen || _isDrawing || _isEditingShape;
 
   @override
   void initState() {
     super.initState();
     _selectedMemberIds.addAll(
-      CoverageDemoData.members.map((member) => member.id),
+      CoverageDemoData.members.map((m) => m.id),
     );
     _initializeMarkerIcons();
   }
@@ -125,70 +76,13 @@ class _CoveragePageState extends State<CoveragePage> {
     super.dispose();
   }
 
-  void _showSubzonePanel(TerritorySubzone subzone) {
+  void _setMenuOpen(bool value) => setState(() => _isMenuOpen = value);
 
-    setState(() {
-      _isMenuOpen = true;
-    });
-
-    showModalBottomSheet(
-      context: context,
-      isDismissible: true,
-      enableDrag: true,
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Subzone ${subzone.name}',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              Text('Status: ${subzone.status.name}'),
-              const SizedBox(height: 16),
-              OutlinedButton(
-                onPressed: () {
-                  _setManualCoverage(subzone, ZoneCoverageStatus.uncovered);
-                  Navigator.pop(context);
-                },
-                child: const Text('Reset to Uncovered'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  _setManualCoverage(subzone, ZoneCoverageStatus.partial);
-                  Navigator.pop(context);
-                },
-                child: const Text('Mark Partially Covered'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  _setManualCoverage(subzone, ZoneCoverageStatus.full);
-                  Navigator.pop(context);
-                },
-                child: const Text('Mark Fully Covered'),
-              ),
-            ],
-          ),
-        );
-      },
-    ).whenComplete(() {
-      if (!mounted) return;
-      setState(() {
-        _isMenuOpen = false;
-      });
-    });
-  }
-
-  void _setManualCoverage(TerritorySubzone subzone, ZoneCoverageStatus newStatus,){
-    final index = CoverageDemoData.subzones.indexWhere(
-      (s) => s.id == subzone.id,
-    );
-
+  void _setManualCoverage(
+      TerritorySubzone subzone, ZoneCoverageStatus newStatus) {
+    final index =
+        CoverageDemoData.subzones.indexWhere((s) => s.id == subzone.id);
     if (index == -1) return;
-
     setState(() {
       CoverageDemoData.subzones[index] = TerritorySubzone(
         id: subzone.id,
@@ -201,475 +95,88 @@ class _CoveragePageState extends State<CoveragePage> {
     });
   }
 
-  void _startDrawingZone() {
-    setState(() {
-      _drawingMode = 'zone';
-      _draftPoints.clear();
-    });
-  }
+  void _startDrawingZone() => setState(() {
+        _drawingMode = 'zone';
+        _draftPoints.clear();
+      });
 
-  void _startDrawingSubzone() {
-    setState(() {
-      _drawingMode = 'subzone';
-      _draftPoints.clear();
-    });
-  }
+  void _startDrawingSubzone() => setState(() {
+        _drawingMode = 'subzone';
+        _draftPoints.clear();
+      });
 
-  void _cancelDrawing() {
-    setState(() {
-      _drawingMode = null;
-      _draftPoints.clear();
-      _highlightDraftMergeIndex = null;
-    });
-  }
+  void _cancelDrawing() => setState(() {
+        _drawingMode = null;
+        _draftPoints.clear();
+        _highlightDraftMergeIndex = null;
+      });
 
   void _undoLastPoint() {
     if (_draftPoints.isEmpty) return;
-
-    setState(() {
-      _draftPoints.removeLast();
-    });
+    setState(() => _draftPoints.removeLast());
   }
 
   void _addDraftPoint(LatLng point) {
     if (_drawingMode == null) return;
-
-    setState(() {
-      _draftPoints.add(point);
-    });
+    setState(() => _draftPoints.add(point));
   }
 
   void _saveDraftPolygon() {
     if (_draftPoints.length < 3 || _drawingMode == null) return;
-
     _zoneNameController.clear();
 
-    setState(() {
-      _isMenuOpen = true;
-    });
-
-    showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) {
-        final isSubzone = _drawingMode == 'subzone';
-
-        return AlertDialog(
-          title: Text(isSubzone ? 'Save Subzone' : 'Save Zone'),
-          content: TextField(
-            controller: _zoneNameController,
-            decoration: InputDecoration(
-              labelText: isSubzone ? 'Subzone Name' : 'Zone Name',
-              border: const OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final name = _zoneNameController.text.trim();
-                if (name.isEmpty) return;
-
-                setState(() {
-                  if (_drawingMode == 'zone') {
-                    CoverageDemoData.zones.add(
-                      TerritoryZone(
-                        id: 'zone_${DateTime.now().millisecondsSinceEpoch}',
-                        name: name,
-                        branchId: CoverageDemoData.branchId,
-                        points: List<LatLng>.from(_draftPoints),
-                      ),
-                    );
-                  } else {
-                    CoverageDemoData.subzones.add(
-                      TerritorySubzone(
-                        id: 'subzone_${DateTime.now().millisecondsSinceEpoch}',
-                        name: name,
-                        branchId: CoverageDemoData.branchId,
-                        points: List<LatLng>.from(_draftPoints),
-                        status: ZoneCoverageStatus.uncovered,
-                        manualOverride: false,
-                      ),
-                    );
-                  }
-
-                  _drawingMode = null;
-                  _draftPoints.clear();
-                  _highlightDraftMergeIndex = null;
-                });
-
-                Navigator.of(context).pop();
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
-    ).whenComplete(() {
-      if (!mounted) return;
-
-      setState(() {
-        _isMenuOpen = false;
-      });
-    });
-  }
-
-  void _showZoneEditPanel(TerritoryZone zone) {
-    setState(() {
-      _isMenuOpen = true;
-    });
-
-    showModalBottomSheet(
-      context: context,
-      isDismissible: true,
-      enableDrag: true,
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                zone.name,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _beginZoneVertexEdit(zone);
-                },
-                child: const Text('Edit Zone Shape'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _renameZone(zone);
-                },
-                child: const Text('Edit Zone Name'),
-              ),
-              OutlinedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _deleteZone(zone);
-                },
-                child: const Text('Delete Zone'),
-              ),
-            ],
-          ),
-        );
-      },
-    ).whenComplete(() {
-      if (!mounted) return;
-      setState(() {
-        _isMenuOpen = false;
-      });
-    });
-  }
-
-  void _showSubzoneEditPanel(TerritorySubzone subzone) {
-    
-    setState(() {
-      _isMenuOpen = true;
-    });
-
-    showModalBottomSheet(
-      context: context,
-      isDismissible: true,
-      enableDrag: true,
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                subzone.name,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              Text('Status: ${subzone.status.name}'),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _beginSubzoneVertexEdit(subzone);
-                },
-                child: const Text('Edit Subzone Shape'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _renameSubzone(subzone);
-                },
-                child: const Text('Edit Zone Name'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  _setManualCoverage(subzone, ZoneCoverageStatus.partial);
-                  Navigator.pop(context);
-                },
-                child: const Text('Manual: Partial'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  _setManualCoverage(subzone, ZoneCoverageStatus.full);
-                  Navigator.pop(context);
-                },
-                child: const Text('Manual: Full'),
-              ),
-              OutlinedButton(
-                onPressed: () {
-                  _setManualCoverage(subzone, ZoneCoverageStatus.uncovered);
-                  Navigator.pop(context);
-                },
-                child: const Text('Manual: Uncovered'),
-              ),
-              OutlinedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _deleteSubzone(subzone);
-                },
-                child: const Text('Delete Zone'),
-              ),
-            ],
-          ),
-        );
-      },
-    ).whenComplete(() {
-      if (!mounted) return;
-      setState(() {
-        _isMenuOpen = false;
-      });
-    });
-  }
-
-  void _renameZone(TerritoryZone zone) {
+    final capturedMode = _drawingMode!;
 
     setState(() {
       _isMenuOpen = true;
-    });
-
-    final controller = TextEditingController(text: zone.name);
-
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Zone Name'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            labelText: 'Zone Name',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final newName = controller.text.trim();
-              if (newName.isEmpty) return;
-
-              final index =
-                  CoverageDemoData.zones.indexWhere((z) => z.id == zone.id);
-              if (index == -1) return;
-
-              setState(() {
-                CoverageDemoData.zones[index] = TerritoryZone(
-                  id: zone.id,
-                  name: newName,
-                  branchId: zone.branchId,
-                  points: zone.points,
-                );
-              });
-
-              Navigator.of(context).pop();
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    ).whenComplete(() {
-      if (!mounted) return;
-      setState(() {
-        _isMenuOpen = false;
-      });
-    });
-  }
-
-  void _renameSubzone(TerritorySubzone subzone) {
-
-    setState(() {
-      _isMenuOpen = true;
-    }); 
-
-    final controller = TextEditingController(text: subzone.name);
-
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Subzone Name'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            labelText: 'Subzone Name',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final newName = controller.text.trim();
-              if (newName.isEmpty) return;
-
-              final index = CoverageDemoData.subzones
-                  .indexWhere((s) => s.id == subzone.id);
-              if (index == -1) return;
-
-              setState(() {
-                CoverageDemoData.subzones[index] = TerritorySubzone(
-                  id: subzone.id,
-                  name: newName,
-                  branchId: subzone.branchId,
-                  points: subzone.points,
-                  status: subzone.status,
-                  manualOverride: subzone.manualOverride,
-                );
-              });
-
-              Navigator.of(context).pop();
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    ).whenComplete(() {
-      if (!mounted) return;
-      setState(() {
-        _isMenuOpen = false;
-      });
-    });
-  }
-
-  void _deleteZone(TerritoryZone zone) {
-
-    setState(() {
-      _isMenuOpen = true;
-    }); 
-
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Zone'),
-        content: Text('Delete "${zone.name}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                CoverageDemoData.zones.removeWhere((z) => z.id == zone.id);
-              });
-              Navigator.of(context).pop();
-            },
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    ).whenComplete(() {
-      if (!mounted) return;
-      setState(() {
-        _isMenuOpen = false;
-      });
-    });
-  }
-
-  void _deleteSubzone(TerritorySubzone subzone) {
-
-    setState(() {
-      _isMenuOpen = true;
-    }); 
-
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Subzone'),
-        content: Text('Delete "${subzone.name}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                CoverageDemoData.subzones.removeWhere((s) => s.id == subzone.id);
-              });
-              Navigator.of(context).pop();
-            },
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    ).whenComplete(() {
-      if (!mounted) return;
-      setState(() {
-        _isMenuOpen = false;
-      });
-    });
-  }
-
-  void _beginZoneVertexEdit(TerritoryZone zone) {
-    setState(() {
-      _editingZoneId = zone.id;
-      _editingSubzoneId = null;
-      _editingPoints = List<LatLng>.from(zone.points);
       _drawingMode = null;
-      _draftPoints.clear();
     });
+
+    CoveragePanels.showSavePolygonDialog(
+      context: context,
+      drawingMode: capturedMode,
+      controller: _zoneNameController,
+      draftPoints: _draftPoints,
+      onSaved: () => setState(() {
+        _draftPoints.clear();
+        _highlightDraftMergeIndex = null;
+      }),
+      onMenuClosed: () {
+        if (!mounted) return;
+        setState(() => _isMenuOpen = false);
+      },
+    );
   }
 
-  void _beginSubzoneVertexEdit(TerritorySubzone subzone) {
-    setState(() {
-      _editingSubzoneId = subzone.id;
-      _editingZoneId = null;
-      _editingPoints = List<LatLng>.from(subzone.points);
-      _drawingMode = null;
-      _draftPoints.clear();
-    });
-  }
+  void _beginZoneVertexEdit(TerritoryZone zone) => setState(() {
+        _editingZoneId = zone.id;
+        _editingSubzoneId = null;
+        _editingPoints = List<LatLng>.from(zone.points);
+        _drawingMode = null;
+        _draftPoints.clear();
+      });
 
-  void _cancelVertexEdit() {
-    setState(() {
-      _editingZoneId = null;
-      _editingSubzoneId = null;
-      _editingPoints.clear();
-      _highlightEditMergeIndex = null;
-    });
-  }
+  void _beginSubzoneVertexEdit(TerritorySubzone subzone) => setState(() {
+        _editingSubzoneId = subzone.id;
+        _editingZoneId = null;
+        _editingPoints = List<LatLng>.from(subzone.points);
+        _drawingMode = null;
+        _draftPoints.clear();
+      });
+
+  void _cancelVertexEdit() => setState(() {
+        _editingZoneId = null;
+        _editingSubzoneId = null;
+        _editingPoints.clear();
+        _highlightEditMergeIndex = null;
+      });
 
   void _saveVertexEdit() {
     if (_editingPoints.length < 3) return;
-
     setState(() {
       if (_editingZoneId != null) {
-        final index = CoverageDemoData.zones.indexWhere((z) => z.id == _editingZoneId);
+        final index = CoverageDemoData.zones
+            .indexWhere((z) => z.id == _editingZoneId);
         if (index != -1) {
           final zone = CoverageDemoData.zones[index];
           CoverageDemoData.zones[index] = TerritoryZone(
@@ -680,7 +187,8 @@ class _CoveragePageState extends State<CoveragePage> {
           );
         }
       } else if (_editingSubzoneId != null) {
-        final index = CoverageDemoData.subzones.indexWhere((s) => s.id == _editingSubzoneId);
+        final index = CoverageDemoData.subzones
+            .indexWhere((s) => s.id == _editingSubzoneId);
         if (index != -1) {
           final subzone = CoverageDemoData.subzones[index];
           CoverageDemoData.subzones[index] = TerritorySubzone(
@@ -693,7 +201,6 @@ class _CoveragePageState extends State<CoveragePage> {
           );
         }
       }
-
       _editingZoneId = null;
       _editingSubzoneId = null;
       _editingPoints.clear();
@@ -701,33 +208,153 @@ class _CoveragePageState extends State<CoveragePage> {
     });
   }
 
+  void _deleteAllZones() {
+    setState(() => _isMenuOpen = true);
+    CoveragePanels.showDeleteAllDialog(
+      context: context,
+      onConfirmed: () => setState(() {
+        CoverageDemoData.zones.clear();
+        CoverageDemoData.subzones.clear();
+        _draftPoints.clear();
+        _editingPoints.clear();
+        _drawingMode = null;
+        _editingZoneId = null;
+        _editingSubzoneId = null;
+      }),
+      onMenuClosed: () {
+        if (!mounted) return;
+        setState(() => _isMenuOpen = false);
+      },
+    );
+  }
+
+  void _showSubzonePanel(TerritorySubzone subzone) {
+    setState(() => _isMenuOpen = true);
+    CoveragePanels.showSubzonePanel(
+      context: context,
+      subzone: subzone,
+      onSetCoverage: (status) => _setManualCoverage(subzone, status),
+      onMenuClosed: () {
+        if (!mounted) return;
+        setState(() => _isMenuOpen = false);
+      },
+    );
+  }
+
+  void _showZoneEditPanel(TerritoryZone zone) {
+    setState(() => _isMenuOpen = true);
+    CoveragePanels.showZoneEditPanel(
+      context: context,
+      zone: zone,
+      onEditShape: () => _beginZoneVertexEdit(zone),
+      onRename: () => CoveragePanels.showRenameZoneDialog(
+        context: context,
+        zone: zone,
+        onRenamed: (newName) => setState(() {
+          final index =
+              CoverageDemoData.zones.indexWhere((z) => z.id == zone.id);
+          if (index != -1) {
+            CoverageDemoData.zones[index] = TerritoryZone(
+              id: zone.id,
+              name: newName,
+              branchId: zone.branchId,
+              points: zone.points,
+            );
+          }
+        }),
+        onMenuClosed: () {
+          if (!mounted) return;
+          setState(() => _isMenuOpen = false);
+        },
+      ),
+      onDelete: () => CoveragePanels.showDeleteZoneDialog(
+        context: context,
+        zone: zone,
+        onConfirmed: () => setState(() {
+          CoverageDemoData.zones.removeWhere((z) => z.id == zone.id);
+        }),
+        onMenuClosed: () {
+          if (!mounted) return;
+          setState(() => _isMenuOpen = false);
+        },
+      ),
+      onMenuClosed: () {
+        if (!mounted) return;
+        setState(() => _isMenuOpen = false);
+      },
+    );
+  }
+
+  void _showSubzoneEditPanel(TerritorySubzone subzone) {
+    setState(() => _isMenuOpen = true);
+    CoveragePanels.showSubzoneEditPanel(
+      context: context,
+      subzone: subzone,
+      onEditShape: () => _beginSubzoneVertexEdit(subzone),
+      onRename: () => CoveragePanels.showRenameSubzoneDialog(
+        context: context,
+        subzone: subzone,
+        onRenamed: (newName) => setState(() {
+          final index = CoverageDemoData.subzones
+              .indexWhere((s) => s.id == subzone.id);
+          if (index != -1) {
+            CoverageDemoData.subzones[index] = TerritorySubzone(
+              id: subzone.id,
+              name: newName,
+              branchId: subzone.branchId,
+              points: subzone.points,
+              status: subzone.status,
+              manualOverride: subzone.manualOverride,
+            );
+          }
+        }),
+        onMenuClosed: () {
+          if (!mounted) return;
+          setState(() => _isMenuOpen = false);
+        },
+      ),
+      onSetCoverage: (status) => _setManualCoverage(subzone, status),
+      onDelete: () => CoveragePanels.showDeleteSubzoneDialog(
+        context: context,
+        subzone: subzone,
+        onConfirmed: () => setState(() {
+          CoverageDemoData.subzones.removeWhere((s) => s.id == subzone.id);
+        }),
+        onMenuClosed: () {
+          if (!mounted) return;
+          setState(() => _isMenuOpen = false);
+        },
+      ),
+      onMenuClosed: () {
+        if (!mounted) return;
+        setState(() => _isMenuOpen = false);
+      },
+    );
+  }
+
   Future<void> _initializeMarkerIcons() async {
-    final draft = await _createCircleMarkerIcon(
+    final draft = await CoverageMapWidget.createCircleMarkerIcon(
       fillColor: Colors.red,
       strokeColor: Colors.white,
       diameter: 14,
     );
-
-    final edit = await _createCircleMarkerIcon(
+    final edit = await CoverageMapWidget.createCircleMarkerIcon(
       fillColor: Colors.blue,
       strokeColor: Colors.white,
       diameter: 14,
     );
-
-    final midpoint = await _createCircleMarkerIcon(
+    final midpoint = await CoverageMapWidget.createCircleMarkerIcon(
       fillColor: Colors.red.withOpacity(0.55),
       strokeColor: Colors.white,
       diameter: 10,
     );
-
-    final mergeHighlight = await _createCircleMarkerIcon(
+    final mergeHighlight = await CoverageMapWidget.createCircleMarkerIcon(
       fillColor: Colors.yellow,
       strokeColor: Colors.red,
       diameter: 18,
     );
 
     if (!mounted) return;
-
     setState(() {
       _draftPointIcon = draft;
       _editPointIcon = edit;
@@ -736,707 +363,144 @@ class _CoveragePageState extends State<CoveragePage> {
     });
   }
 
-  Future<BitmapDescriptor> _createCircleMarkerIcon({
-    required Color fillColor,
-    required Color strokeColor,
-    int diameter = 24,
-    }) async {
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    final paint = Paint()..color = fillColor;
-    final strokePaint = Paint()
-      ..color = strokeColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+  void _updateDraftPoint(int index, LatLng position) =>
+      setState(() => _draftPoints[index] = position);
 
-    final center = Offset(diameter / 2, diameter / 2);
-    final radius = diameter / 2.5;
+  void _removeDraftPoint(int index) =>
+      setState(() => _draftPoints.removeAt(index));
 
-    canvas.drawCircle(center, radius, paint);
-    canvas.drawCircle(center, radius, strokePaint);
+  void _insertDraftPoint(int index, LatLng position) =>
+      setState(() => _draftPoints.insert(index, position));
 
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(diameter, diameter);
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    final bytes = byteData!.buffer.asUint8List();
+  void _setHighlightDraftMerge(int? index) =>
+      setState(() => _highlightDraftMergeIndex = index);
 
-    return BitmapDescriptor.bytes(bytes);
-  }
+  void _updateEditPoint(int index, LatLng position) =>
+      setState(() => _editingPoints[index] = position);
 
-  List<CoverageRun> _filteredRuns() {
-    return CoverageDemoData.runs.where((run) {
-      final matchesMember = _selectedMemberIds.contains(run.memberId);
-      final matchesType = _selectedType == null || run.type == _selectedType;
-      return matchesMember && matchesType;
-    }).toList();
-  }
+  void _removeEditPoint(int index) =>
+      setState(() => _editingPoints.removeAt(index));
 
-  Color _subzoneFillColor(ZoneCoverageStatus status) {
-    switch (status) {
-      case ZoneCoverageStatus.uncovered:
-        return Colors.transparent;
-      case ZoneCoverageStatus.partial:
-        return Colors.yellow.withOpacity(0.35);
-      case ZoneCoverageStatus.full:
-        return Colors.green.withOpacity(0.35);
-    }
-  }
+  void _insertEditPoint(int index, LatLng position) =>
+      setState(() => _editingPoints.insert(index, position));
 
-  Set<Polyline> _buildRunPolylines() {
-    final runs = _filteredRuns();
-    final Set<Polyline> polylines = {};
-
-    for (final run in runs) {
-      final member = CoverageDemoData.members.firstWhere(
-        (m) => m.id == run.memberId,
-      );
-
-      polylines.add(
-        Polyline(
-          polylineId: PolylineId(run.id),
-          color: member.color,
-          width: 4,
-          points: run.routePoints,
-        ),
-      );
-    }
-
-    return polylines;
-  }
-
-  Set<Polygon> _buildZonePolygons() {
-    if (!_showZones && !_isEditMode) return {};
-
-    final Set<Polygon> polygons = {};
-
-    for (final zone in CoverageDemoData.zones) {
-      final isEditingThisZone = zone.id == _editingZoneId;
-
-      if (isEditingThisZone && _isEditingShape) continue;
-
-      polygons.add(
-        Polygon(
-          polygonId: PolygonId(zone.id),
-          points: zone.points,
-          consumeTapEvents: !_isDrawing && !_isEditingShape && !_isMenuOpen,
-          onTap: (_isEditMode && !_isInteractionLocked)
-              ? () {
-                  _showZoneEditPanel(zone);
-                }
-              : null,
-          strokeColor: Colors.blueGrey,
-          strokeWidth: 2,
-          fillColor: Colors.blue.withOpacity(0.08),
-        ),
-      );
-    }
-
-    for (final subzone in CoverageDemoData.subzones) {
-      final isEditingThisSubzone = subzone.id == _editingSubzoneId;
-
-      if (isEditingThisSubzone && _isEditingShape) continue;
-
-      polygons.add(
-        Polygon(
-          polygonId: PolygonId(subzone.id),
-          points: subzone.points,
-          consumeTapEvents: !_isDrawing && !_isEditingShape && !_isMenuOpen,
-          onTap: _isInteractionLocked
-              ? null
-              : () {
-                  if (_isEditMode) {
-                    _showSubzoneEditPanel(subzone);
-                  } else {
-                    setState(() {
-                      _selectedSubzone = subzone;
-                    });
-                    _showSubzonePanel(subzone);
-                  }
-                },
-          strokeColor: Colors.black87,
-          strokeWidth: 2,
-          fillColor: _subzoneFillColor(subzone.status),
-        ),
-      );
-    }
-
-    if (_draftPoints.length >= 3) {
-      polygons.add(
-        Polygon(
-          polygonId: const PolygonId('draft_polygon'),
-          points: _draftPoints,
-          strokeColor: Colors.red,
-          strokeWidth: 3,
-          fillColor: Colors.red.withOpacity(0.18),
-        ),
-      );
-    }
-
-    if (_editingPoints.length >= 3) {
-      polygons.add(
-        Polygon(
-          polygonId: const PolygonId('editing_polygon'),
-          points: _editingPoints,
-          strokeColor: Colors.red,
-          strokeWidth: 3,
-          fillColor: Colors.red.withOpacity(0.18),
-        ),
-      );
-    }
-
-    return polygons;
-  }
-
-  Set<Polyline> _buildDraftPolylines() {
-    if (_draftPoints.length < 2) return {};
-
-    return {
-      Polyline(
-        polylineId: const PolylineId('draft_line'),
-        points: _draftPoints,
-        color: Colors.red,
-        width: 3,
-      ),
-    };
-  }
-
-  Set<Marker> _buildDraftMarkers() {
-    if (_draftPoints.isEmpty) return {};
-
-    final markers = <Marker>{};
-
-    for (int i = 0; i < _draftPoints.length; i++) {
-      final isMergeTarget = _highlightDraftMergeIndex == i;
-
-      markers.add(
-        Marker(
-          markerId: MarkerId('draft_point_$i'),
-          position: _draftPoints[i],
-          draggable: true,
-          icon: isMergeTarget
-              ? (_mergeHighlightIcon ?? _draftPointIcon ?? BitmapDescriptor.defaultMarker)
-              : (_draftPointIcon ?? BitmapDescriptor.defaultMarker),
-          anchor: const Offset(0.5, 0.5),
-          onDrag: (newPosition) {
-            _updateDraftMergeHighlight(i, newPosition);
-          },
-          onDragEnd: (newPosition) {
-            _mergeDraftPointIfNeeded(i, newPosition);
-          },
-        ),
-      );
-    }
-
-    return markers;
-  }
-
-  Set<Marker> _buildEditMarkers() {
-    if (_editingPoints.isEmpty) return {};
-
-    final markers = <Marker>{};
-
-    for (int i = 0; i < _editingPoints.length; i++) {
-      final isMergeTarget = _highlightEditMergeIndex == i;
-
-      markers.add(
-        Marker(
-          markerId: MarkerId('edit_point_$i'),
-          position: _editingPoints[i],
-          draggable: true,
-          icon: isMergeTarget
-              ? (_mergeHighlightIcon ??
-                  _editPointIcon ??
-                  BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure))
-              : (_editPointIcon ??
-                  BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
-          anchor: const Offset(0.5, 0.5),
-          onDrag: (newPosition) {
-            _updateEditMergeHighlight(i, newPosition);
-          },
-          onDragEnd: (newPosition) {
-            _mergeEditPointIfNeeded(i, newPosition);
-          },
-        ),
-      );
-    }
-
-    return markers;
-  }
-
-  Widget _buildMemberChips() {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: CoverageDemoData.members.map((member) {
-        final isSelected = _selectedMemberIds.contains(member.id);
-
-        return FilterChip(
-          selected: isSelected,
-          label: Text(member.name),
-          avatar: CircleAvatar(
-            backgroundColor: member.color,
-            radius: 8,
-          ),
-          onSelected: (selected) {
-            setState(() {
-              if (selected) {
-                _selectedMemberIds.add(member.id);
-              } else {
-                _selectedMemberIds.remove(member.id);
-              }
-            });
-          },
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildTypeChips() {
-    final allSelected = _selectedType == null;
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        FilterChip(
-          selected: allSelected,
-          label: const Text('All'),
-          onSelected: (_) {
-            setState(() {
-              _selectedType = null;
-            });
-          },
-        ),
-        ...SessionType.values.map((type) {
-          return FilterChip(
-            selected: _selectedType == type,
-            label: Text(type.label),
-            onSelected: (_) {
-              setState(() {
-                _selectedType = type;
-              });
-            },
-          );
-        }),
-      ],
-    );
-  }
+  void _setHighlightEditMerge(int? index) =>
+      setState(() => _highlightEditMergeIndex = index);
 
   @override
   Widget build(BuildContext context) {
-    final filteredRuns = _filteredRuns();
-
     return Scaffold(
       appBar: AppBar(
         title: Text(CoverageDemoData.branchTitle),
         actions: [
           if (_canEditZones)
             IconButton(
-              onPressed: () {
-                setState(() {
-                  _isEditMode = !_isEditMode;
-                });
-              },
+              onPressed: () =>
+                  setState(() => _isEditMode = !_isEditMode),
               icon: Icon(_isEditMode ? Icons.check : Icons.edit),
               tooltip: _isEditMode ? 'Done' : 'Edit Zones',
             ),
         ],
       ),
-
-      body: Column(
+      body: Stack(
         children: [
-          if (!_isEditMode)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Team Members',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildMemberChips(),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Marketing Type',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildTypeChips(),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Switch(
-                        value: _showZones,
-                        onChanged: (value) {
-                          setState(() {
-                            _showZones = value;
-                          });
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      const Text('Show Zones'),
-                    ],
-                  ),
-                  Text(
-                    'Showing ${filteredRuns.length} run(s)',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-            ),
-          if (_isEditMode)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Zone Edit Mode',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Main edit buttons
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ElevatedButton(
-                        onPressed: _startDrawingZone,
-                        child: const Text('Create Zone'),
-                      ),
-                      ElevatedButton(
-                        onPressed: _startDrawingSubzone,
-                        child: const Text('Create Subzone'),
-                      ),
-                      OutlinedButton(
-                        onPressed: _deleteAllZones,
-                        child: const Text('Delete All Zones'),
-                      ),
-                    ],
-                  ),
-
-                  // Drawing controls
-                  if (_drawingMode != null) ...[
-                    const SizedBox(height: 12),
-
-                    Text(
-                      _drawingMode == 'zone'
-                          ? 'Tap map to draw zone. Then finish and name it.'
-                          : 'Tap map to draw subzone. Then finish and name it.',
-                    ),
-
-                    const SizedBox(height: 8),
-                    const Text('Drag a point onto another point to merge them.'),
-                    const SizedBox(height: 8),
-
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        OutlinedButton(
-                          onPressed: _draftPoints.isNotEmpty ? _undoLastPoint : null,
-                          child: const Text('Undo Point'),
-                        ),
-                        ElevatedButton(
-                          onPressed:
-                            _draftPoints.length >= 3 ? _saveDraftPolygon : null,
-                          child: const Text('Finish & Name'),
-                        ),
-                        TextButton(
-                          onPressed: _cancelDrawing,
-                          child: const Text('Cancel'),
-                        ),
-                      ],
-                    ),
-                  ],
-
-                  if (_editingPoints.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    const Text('Editing shape: drag the blue points to adjust the boundary'),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Drag a point onto another point to merge them.',
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ElevatedButton(
-                          onPressed: _editingPoints.length >= 3 ? _saveVertexEdit : null,
-                          child: const Text('Save Shape'),
-                        ),
-                        TextButton(
-                          onPressed: _cancelVertexEdit,
-                          child: const Text('Cancel Shape Edit'),
-                        ),
-                      ],
-                    ),
-                  ]
-                ],
-              ),
-            ),
-          Expanded(
-            child: GoogleMap(
-              initialCameraPosition: const CameraPosition(
-                target: LatLng(42.8120, -72.5450),
-                zoom: 12,
-              ),
-              onTap: (_isEditMode && _isDrawing && !_isMenuOpen)
-                ? _addDraftPoint
-                : null,
-              polylines: {
-                ...(_isEditMode ? <Polyline>{} : _buildRunPolylines()),
-                ...(_isDrawing ? _buildDraftPolylines() : <Polyline>{}),
+          // map fills entire body
+          Positioned.fill(
+            child: CoverageMapWidget(
+              isEditMode: _isEditMode,
+              isDrawing: _isDrawing,
+              isEditingShape: _isEditingShape,
+              isInteractionLocked: _isInteractionLocked,
+              isMenuOpen: _isMenuOpen,
+              showZones: _showZones,
+              selectedMemberIds: _selectedMemberIds,
+              selectedType: _selectedType,
+              draftPoints: _draftPoints,
+              editingPoints: _editingPoints,
+              editingZoneId: _editingZoneId,
+              editingSubzoneId: _editingSubzoneId,
+              drawingMode: _drawingMode,
+              highlightDraftMergeIndex: _highlightDraftMergeIndex,
+              highlightEditMergeIndex: _highlightEditMergeIndex,
+              mergeThreshold: _mergeThreshold,
+              draftPointIcon: _draftPointIcon,
+              editPointIcon: _editPointIcon,
+              midpointIcon: _midpointIcon,
+              mergeHighlightIcon: _mergeHighlightIcon,
+              onMapTap: _addDraftPoint,
+              onSubzoneViewTap: (subzone) {
+                setState(() => _selectedSubzone = subzone);
+                _showSubzonePanel(subzone);
               },
-              polygons: _buildZonePolygons(),
-              markers: {
-                ...(_isEditMode && _isDrawing ? _buildDraftMarkers() : <Marker>{}),
-                ...(_isEditMode && _isDrawing && _draftPoints.length >= 2
-                    ? _buildDraftMidpointMarkers()
-                    : <Marker>{}),
-                ...(_isEditMode && _editingPoints.isNotEmpty
-                    ? _buildEditMarkers()
-                    : <Marker>{}),
-                ...(_isEditMode && _editingPoints.length >= 2
-                    ? _buildEditMidpointMarkers()
-                    : <Marker>{}),
-              },
-              myLocationEnabled: false,
-              zoomControlsEnabled: true,
+              onZoneEditTap: _showZoneEditPanel,
+              onSubzoneEditTap: _showSubzoneEditPanel,
+              onUpdateDraftPoint: _updateDraftPoint,
+              onRemoveDraftPoint: _removeDraftPoint,
+              onInsertDraftPoint: _insertDraftPoint,
+              onSetHighlightDraftMerge: _setHighlightDraftMerge,
+              onUpdateEditPoint: _updateEditPoint,
+              onRemoveEditPoint: _removeEditPoint,
+              onInsertEditPoint: _insertEditPoint,
+              onSetHighlightEditMerge: _setHighlightEditMerge,
+              onSnackBar: (message) => ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text(message))),
             ),
           ),
+
+          // floating view toolbar
+          if (!_isEditMode)
+            Positioned(
+              top: 12,
+              left: 12,
+              child: CoverageViewToolbar(
+                selectedMemberIds: _selectedMemberIds,
+                selectedType: _selectedType,
+                showZones: _showZones,
+                onMemberToggled: (id, selected) => setState(() {
+                  if (selected) {
+                    _selectedMemberIds.add(id);
+                  } else {
+                    _selectedMemberIds.remove(id);
+                  }
+                }),
+                onTypeChanged: (type) => setState(() => _selectedType = type),
+                onShowZonesChanged: (value) =>
+                    setState(() => _showZones = value),
+              ),
+            ),
+
+          // floating edit toolbar
+          if (_isEditMode)
+            Positioned(
+              top: 12,
+              left: 12,
+              right: 12,
+              child: CoverageEditToolbar(
+                onStartDrawingZone: _startDrawingZone,
+                onStartDrawingSubzone: _startDrawingSubzone,
+                onDeleteAll: _deleteAllZones,
+              ),
+            ),
+
+          // floating drawing/editing banner
+          if (_isEditMode)
+            Positioned(
+              bottom: 16,
+              left: 12,
+              right: 12,
+              child: CoverageDrawingBanner(
+                drawingMode: _drawingMode,
+                draftPoints: _draftPoints,
+                editingPoints: _editingPoints,
+                onUndoPoint: _undoLastPoint,
+                onFinishDrawing: _saveDraftPolygon,
+                onCancelDrawing: _cancelDrawing,
+                onSaveShape: _saveVertexEdit,
+                onCancelShapeEdit: _cancelVertexEdit,
+              ),
+            ),
         ],
       ),
     );
   }
-
-  // Midpoint markers:
-
-  LatLng _midpoint(LatLng a, LatLng b) {
-    return LatLng(
-      (a.latitude + b.latitude) / 2,
-      (a.longitude + b.longitude) / 2,
-    );
-  }
-
-  Set<Marker> _buildEditMidpointMarkers() {
-    if (_editingPoints.length < 2) return {};
-
-    final markers = <Marker>{};
-
-    for (int i = 0; i < _editingPoints.length; i++) {
-      final int nextIndex = (i + 1) % _editingPoints.length;
-
-      final LatLng a = _editingPoints[i];
-      final LatLng b = _editingPoints[nextIndex];
-      final LatLng midpoint = _midpoint(a, b);
-
-      markers.add(
-        Marker(
-          markerId: MarkerId('edit_midpoint_$i'),
-          position: midpoint,
-          draggable: true,
-          icon: _midpointIcon ??
-            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-          alpha: 0.45,
-          anchor: const Offset(0.5, 0.5),
-          onDragStart: (_) {
-            final int insertionIndex = i + 1;
-
-            setState(() {
-              _editingPoints.insert(insertionIndex, midpoint);
-            });
-          },
-          onDragEnd: (newPosition) {
-            final int insertionIndex = i + 1;
-
-            setState(() {
-              if (insertionIndex < _editingPoints.length) {
-                _editingPoints[insertionIndex] = newPosition;
-              }
-            });
-          },
-        ),
-      );
-    }
-
-    return markers;
-  }
-
-  Set<Marker> _buildDraftMidpointMarkers() {
-    if (_draftPoints.length < 2) return {};
-
-    final markers = <Marker>{};
-
-    final int segmentCount =
-        _draftPoints.length >= 3 ? _draftPoints.length : _draftPoints.length - 1;
-
-    for (int i = 0; i < segmentCount; i++) {
-      final int nextIndex = (i + 1) % _draftPoints.length;
-
-      if (_draftPoints.length < 3 && nextIndex == 0) {
-        continue;
-      }
-
-      final LatLng a = _draftPoints[i];
-      final LatLng b = _draftPoints[nextIndex];
-      final LatLng midpoint = _midpoint(a, b);
-
-      markers.add(
-        Marker(
-          markerId: MarkerId('draft_midpoint_$i'),
-          position: midpoint,
-          draggable: true,
-          icon: _midpointIcon ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-          alpha: 0.45,
-          anchor: const Offset(0.5, 0.5),
-          onDragStart: (_) {
-            final int insertionIndex = i + 1;
-
-            setState(() {
-              _draftPoints.insert(insertionIndex, midpoint);
-            });
-          },
-          onDragEnd: (newPosition) {
-            final int insertionIndex = i + 1;
-
-            setState(() {
-              if (insertionIndex < _draftPoints.length) {
-                _draftPoints[insertionIndex] = newPosition;
-              }
-            });
-          },
-        ),
-      );
-    }
-
-    return markers;
-  }
-
-  // Merging verticies helpers:
-
-  double _pointDistance(LatLng a, LatLng b) {
-    final latDiff = a.latitude - b.latitude;
-    final lngDiff = a.longitude - b.longitude;
-    return (latDiff * latDiff + lngDiff * lngDiff);
-  }
-
-  int? _findMergeTargetIndex({required List<LatLng> points, required int draggingIndex, required LatLng candidatePosition}) {
-    int? bestIndex;
-    double? bestDistance;
-
-    final thresholdSquared = _mergeThreshold * _mergeThreshold;
-
-    for (int i = 0; i < points.length; i++) {
-      if (i == draggingIndex) continue;
-
-      final distance = _pointDistance(candidatePosition, points[i]);
-
-      if (distance <= thresholdSquared) {
-        if (bestDistance == null || distance < bestDistance) {
-          bestDistance = distance;
-          bestIndex = i;
-        }
-      }
-    }
-
-    return bestIndex;
-  }
-
-  void _mergeDraftPointIfNeeded(int draggingIndex, LatLng newPosition) {
-    final targetIndex = _findMergeTargetIndex(
-      points: _draftPoints,
-      draggingIndex: draggingIndex,
-      candidatePosition: newPosition,
-    );
-
-    if (targetIndex == null) {
-      setState(() {
-        _draftPoints[draggingIndex] = newPosition;
-        _highlightDraftMergeIndex = null;
-      });
-      return;
-    }
-
-    if (_draftPoints.length <= 3) {
-      setState(() {
-        _draftPoints[draggingIndex] = newPosition;
-        _highlightDraftMergeIndex = null;
-      });
-      return;
-    }
-
-    setState(() {
-      _draftPoints.removeAt(draggingIndex);
-      _highlightDraftMergeIndex = null;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Point merged')),
-    );
-  }
-
-  void _mergeEditPointIfNeeded(int draggingIndex, LatLng newPosition) {
-    final targetIndex = _findMergeTargetIndex(
-      points: _editingPoints,
-      draggingIndex: draggingIndex,
-      candidatePosition: newPosition,
-    );
-
-    if (targetIndex == null) {
-      setState(() {
-        _editingPoints[draggingIndex] = newPosition;
-        _highlightEditMergeIndex = null;
-      });
-      return;
-    }
-
-    if (_editingPoints.length <= 3) {
-      setState(() {
-        _editingPoints[draggingIndex] = newPosition;
-        _highlightEditMergeIndex = null;
-      });
-      return;
-    }
-
-    setState(() {
-      _editingPoints.removeAt(draggingIndex);
-      _highlightEditMergeIndex = null;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Point merged')),
-    );
-  }
-
-  void _updateDraftMergeHighlight(int draggingIndex, LatLng currentPosition) {
-    final targetIndex = _findMergeTargetIndex(
-      points: _draftPoints,
-      draggingIndex: draggingIndex,
-      candidatePosition: currentPosition,
-    );
-
-    setState(() {
-      _highlightDraftMergeIndex = targetIndex;
-    });
-  }
-
-  void _updateEditMergeHighlight(int draggingIndex, LatLng currentPosition) {
-    final targetIndex = _findMergeTargetIndex(
-      points: _editingPoints,
-      draggingIndex: draggingIndex,
-      candidatePosition: currentPosition,
-    );
-
-    setState(() {
-      _highlightEditMergeIndex = targetIndex;
-    });
-  }
-
-
 }
