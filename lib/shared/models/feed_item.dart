@@ -31,7 +31,7 @@ class FeedItem {
   final Duration? runDuration;
   final int? routePointCount;
   final List<LatLng>? routePoints;
-  final Uint8List? coverPhotoBytes;
+  final List<Uint8List>? photoBytes;
 
   // Manual post-specific
   final String? title;
@@ -55,7 +55,7 @@ class FeedItem {
     this.runDuration,
     this.routePointCount,
     this.routePoints,
-    this.coverPhotoBytes,
+    this.photoBytes,
     this.title,
     this.description,
     this.imageBytesList,

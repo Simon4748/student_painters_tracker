@@ -82,7 +82,7 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
       runDuration: current.runDuration,
       routePointCount: current.routePointCount,
       routePoints: current.routePoints,
-      coverPhotoBytes: current.coverPhotoBytes,
+      photoBytes: current.photoBytes,
       title: current.title,
       description: current.description,
       imageBytesList: current.imageBytesList,
@@ -130,7 +130,7 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
       runDuration: current.runDuration,
       routePointCount: current.routePointCount,
       routePoints: current.routePoints,
-      coverPhotoBytes: current.coverPhotoBytes,
+      photoBytes: current.photoBytes,
       title: current.title,
       description: current.description,
       imageBytesList: current.imageBytesList,
@@ -171,9 +171,9 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
   }
 
   Widget _buildRunImage() {
-    if (_item.coverPhotoBytes != null) {
+    if (_item.photoBytes != null && _item.photoBytes!.isNotEmpty) {
       return Image.memory(
-        _item.coverPhotoBytes!,
+        _item.photoBytes!.first,
         width: double.infinity,
         height: 260,
         fit: BoxFit.cover,

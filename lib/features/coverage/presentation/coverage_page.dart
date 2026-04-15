@@ -64,18 +64,6 @@ class _CoveragePageState extends State<CoveragePage> {
     return _isMenuOpen || _isDrawing || _isEditingShape;
   }
 
-  void _createZone() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Create Zone coming next')),
-    );
-  }
-
-  void _createSubzone() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Create Subzone coming next')),
-    );
-  }
-
   void _deleteAllZones() {
     setState(() {
       _isMenuOpen = true;

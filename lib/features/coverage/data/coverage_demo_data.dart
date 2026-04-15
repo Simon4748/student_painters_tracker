@@ -84,8 +84,8 @@ class CoverageDemoData {
       ],
     ),
     TerritorySubzone(
-        id: 'subzone_1a',
-        name: '1A',
+        id: 'subzone_2a',
+        name: '2A',
         branchId: branchId,
         status: ZoneCoverageStatus.uncovered,
         points: const [

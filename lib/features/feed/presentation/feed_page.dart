@@ -6,8 +6,6 @@ import '../../../shared/models/feed_store.dart';
 import 'create_post_page.dart';
 import 'feed_item_card.dart';
 
-
-
 class FeedPage extends StatefulWidget {
   const FeedPage({super.key});
 
@@ -15,19 +13,37 @@ class FeedPage extends StatefulWidget {
   State<FeedPage> createState() => _FeedPageState();
 }
 
-class _FeedPageState extends State<FeedPage> {
-  // Demo current user state
+class _FeedPageState extends State<FeedPage> with SingleTickerProviderStateMixin {
   final String _currentUserId = 'manager_1';
   final String _currentBranchId = 'brattleboro_branch';
   final String _currentDivisionName = 'New England';
   final String _currentUserRole = 'Branch Manager';
 
+  late TabController _tabController;
   late FeedScope _selectedScope;
 
   @override
   void initState() {
     super.initState();
     _selectedScope = _defaultScopeForRole(_currentUserRole);
+    _tabController = TabController(
+      length: FeedScope.values.length,
+      vsync: this,
+      initialIndex: FeedScope.values.indexOf(_selectedScope),
+    );
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {
+          _selectedScope = FeedScope.values[_tabController.index];
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   FeedScope _defaultScopeForRole(String role) {
@@ -91,69 +107,52 @@ class _FeedPageState extends State<FeedPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Feed'),
+        title: null,
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: FeedScope.values
+              .map((scope) => Tab(text: _scopeLabel(scope)))
+              .toList(),
+          indicator: const UnderlineTabIndicator(
+            borderSide: BorderSide(
+              color: Color(0xFFE93324),
+              width: 2.5,
+            ),
+          ),
+          indicatorSize: TabBarIndicatorSize.label,
+          labelColor: Colors.black87,
+          unselectedLabelColor: Colors.grey,
+          labelStyle: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          ),
+          unselectedLabelStyle: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          ),
+          dividerColor: Colors.transparent,
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openCreatePostPage,
         icon: const Icon(Icons.add),
         label: const Text('Post'),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Viewing',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: FeedScope.values.map((scope) {
-                    return FilterChip(
-                      selected: _selectedScope == scope,
-                      label: Text(_scopeLabel(scope)),
-                      onSelected: (_) {
-                        setState(() {
-                          _selectedScope = scope;
-                        });
-                      },
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Showing ${items.length} item(s)',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: items.isEmpty
-                ? const Center(
-                    child: Text('No feed items yet'),
-                  )
-                : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
-                  itemCount: items.length,
-                  itemBuilder: (context, index) {
-                    return FeedItemCard(
-                      item: items[index],
-                      onChanged: () {
-                        if (!mounted) return;
-                        setState(() {});
-                      },
-                    );
+      body: items.isEmpty
+          ? const Center(child: Text('No feed items yet'))
+          : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                return FeedItemCard(
+                  item: items[index],
+                  onChanged: () {
+                    if (!mounted) return;
+                    setState(() {});
                   },
-                )
-          ),
-        ],
-      ),
+                );
+              },
+            ),
     );
   }
 }

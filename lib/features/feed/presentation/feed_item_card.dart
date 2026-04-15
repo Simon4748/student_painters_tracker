@@ -78,7 +78,7 @@ class _FeedItemCardState extends State<FeedItemCard> {
       runDuration: current.runDuration,
       routePointCount: current.routePointCount,
       routePoints: current.routePoints,
-      coverPhotoBytes: current.coverPhotoBytes,
+      photoBytes: current.photoBytes,
       title: current.title,
       description: current.description,
       imageBytesList: current.imageBytesList,
@@ -103,9 +103,9 @@ class _FeedItemCardState extends State<FeedItemCard> {
   }
 
   Widget _buildRunCover() {
-    if (_item.coverPhotoBytes != null) {
+    if (_item.photoBytes != null && _item.photoBytes!.isNotEmpty) {
       return Image.memory(
-        _item.coverPhotoBytes!,
+        _item.photoBytes!.first,
         width: double.infinity,
         height: 190,
         fit: BoxFit.cover,

@@ -33,7 +33,7 @@ class _MyAppState extends State<MyApp> {
 
       home: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 430)
+          constraints: const BoxConstraints(maxWidth: 430),
           child:Scaffold(
             body: pages[_index],
             bottomNavigationBar: BottomNavigationBar(
