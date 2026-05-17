@@ -114,10 +114,15 @@ class _FeedItemCardState extends State<FeedItemCard> {
   }
 
   Future<void> _openDetails(BuildContext context) async {
+    final user = UserProvider.of(context);
+    
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => FeedDetailPage(
-          itemId: widget.item['id'] as String,
+        builder: (_) => UserProvider(
+          profile: user,
+          child: FeedDetailPage(
+            itemId: widget.item['id'] as String,
+          ),
         ),
       ),
     );
