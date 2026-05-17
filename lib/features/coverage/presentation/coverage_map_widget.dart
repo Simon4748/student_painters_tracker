@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:ui' as ui;
 
-import '../data/coverage_demo_data.dart';
 import '../data/map_style.dart';
 import '../domain/coverage_models.dart';
 import '../../sessions/domain/session_type.dart';
@@ -24,6 +23,11 @@ class CoverageMapWidget extends StatefulWidget {
   final int? highlightDraftMergeIndex;
   final int? highlightEditMergeIndex;
   final double mergeThreshold;
+
+  final List<TerritoryZone> zones;
+  final List<TerritorySubzone> subzones;
+  final List<BranchMember> members;
+  final List<CoverageRun> runs;
 
   final BitmapDescriptor? draftPointIcon;
   final BitmapDescriptor? editPointIcon;
@@ -65,6 +69,10 @@ class CoverageMapWidget extends StatefulWidget {
     required this.highlightDraftMergeIndex,
     required this.highlightEditMergeIndex,
     required this.mergeThreshold,
+    required this.zones,
+    required this.subzones,
+    required this.members,
+    required this.runs,
     required this.draftPointIcon,
     required this.editPointIcon,
     required this.midpointIcon,
@@ -120,11 +128,11 @@ class _CoverageMapWidgetState extends State<CoverageMapWidget> {
   GoogleMapController? _mapController;
 
   List<CoverageRun> _filteredRuns() {
-    return CoverageDemoData.runs.where((run) {
+    return widget.runs.where((run) {
       final matchesMember =
           widget.selectedMemberIds.contains(run.memberId);
-      final matchesType = widget.selectedType == null ||
-          run.type == widget.selectedType;
+      final matchesType =
+          widget.selectedType == null || run.type == widget.selectedType;
       return matchesMember && matchesType;
     }).toList();
   }
@@ -143,8 +151,10 @@ class _CoverageMapWidgetState extends State<CoverageMapWidget> {
   Set<Polyline> _buildRunPolylines() {
     final Set<Polyline> polylines = {};
     for (final run in _filteredRuns()) {
-      final member = CoverageDemoData.members
-          .firstWhere((m) => m.id == run.memberId);
+      final memberMatches =
+          widget.members.where((m) => m.id == run.memberId);
+      if (memberMatches.isEmpty) continue;
+      final member = memberMatches.first;
       polylines.add(Polyline(
         polylineId: PolylineId(run.id),
         color: member.color,
@@ -159,7 +169,7 @@ class _CoverageMapWidgetState extends State<CoverageMapWidget> {
     if (!widget.showZones && !widget.isEditMode) return {};
     final Set<Polygon> polygons = {};
 
-    for (final zone in CoverageDemoData.zones) {
+    for (final zone in widget.zones) {
       if (zone.id == widget.editingZoneId && widget.isEditingShape) {
         continue;
       }
@@ -178,7 +188,7 @@ class _CoverageMapWidgetState extends State<CoverageMapWidget> {
       ));
     }
 
-    for (final subzone in CoverageDemoData.subzones) {
+    for (final subzone in widget.subzones) {
       if (subzone.id == widget.editingSubzoneId &&
           widget.isEditingShape) continue;
       polygons.add(Polygon(
@@ -378,15 +388,14 @@ class _CoverageMapWidgetState extends State<CoverageMapWidget> {
     for (int i = 0; i < segmentCount; i++) {
       final nextIndex = (i + 1) % widget.draftPoints.length;
       if (widget.draftPoints.length < 3 && nextIndex == 0) continue;
-      final mid = _midpoint(
-          widget.draftPoints[i], widget.draftPoints[nextIndex]);
+      final mid =
+          _midpoint(widget.draftPoints[i], widget.draftPoints[nextIndex]);
       markers.add(Marker(
         markerId: MarkerId('draft_midpoint_$i'),
         position: mid,
         draggable: true,
         icon: widget.midpointIcon ??
-            BitmapDescriptor.defaultMarkerWithHue(
-                BitmapDescriptor.hueRed),
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
         alpha: 0.45,
         anchor: const Offset(0.5, 0.5),
         onDragStart: (_) => widget.onInsertDraftPoint(i + 1, mid),
@@ -410,8 +419,7 @@ class _CoverageMapWidgetState extends State<CoverageMapWidget> {
         position: mid,
         draggable: true,
         icon: widget.midpointIcon ??
-            BitmapDescriptor.defaultMarkerWithHue(
-                BitmapDescriptor.hueRed),
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
         alpha: 0.45,
         anchor: const Offset(0.5, 0.5),
         onDragStart: (_) => widget.onInsertEditPoint(i + 1, mid),

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import '../data/coverage_demo_data.dart';
 import '../domain/coverage_models.dart';
 
 class CoveragePanels {
@@ -431,68 +430,6 @@ class CoveragePanels {
               Navigator.of(context).pop();
             },
             child: const Text('Delete All'),
-          ),
-        ],
-      ),
-    ).whenComplete(onMenuClosed);
-  }
-
-  static void showSavePolygonDialog({
-    required BuildContext context,
-    required String drawingMode,
-    required TextEditingController controller,
-    required List<LatLng> draftPoints,
-    required VoidCallback onSaved,
-    required VoidCallback onMenuClosed,
-  }) {
-    final isSubzone = drawingMode == 'subzone';
-    showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: Text(isSubzone ? 'Name this Subzone' : 'Name this Zone'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(
-            labelText: isSubzone ? 'Subzone Name' : 'Zone Name',
-            border: const OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE93324),
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              final name = controller.text.trim();
-              if (name.isEmpty) return;
-              if (drawingMode == 'zone') {
-                CoverageDemoData.zones.add(TerritoryZone(
-                  id: 'zone_${DateTime.now().millisecondsSinceEpoch}',
-                  name: name,
-                  branchId: CoverageDemoData.branchId,
-                  points: List<LatLng>.from(draftPoints),
-                ));
-              } else {
-                CoverageDemoData.subzones.add(TerritorySubzone(
-                  id: 'subzone_${DateTime.now().millisecondsSinceEpoch}',
-                  name: name,
-                  branchId: CoverageDemoData.branchId,
-                  points: List<LatLng>.from(draftPoints),
-                  status: ZoneCoverageStatus.uncovered,
-                  manualOverride: false,
-                ));
-              }
-              onSaved();
-              Navigator.of(context).pop();
-            },
-            child: const Text('Save'),
           ),
         ],
       ),

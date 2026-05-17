@@ -4,15 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../domain/session_type.dart';
-import '../../../shared/models/tracked_session.dart';
-import '../../../shared/models/session_store.dart';
-import '../../../shared/models/feed_item.dart';
-import '../../../shared/models/feed_store.dart';
 
 import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../shared/providers/user_provider.dart';
 import '../../../shared/services/session_service.dart';
 

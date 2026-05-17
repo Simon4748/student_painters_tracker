@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import '../data/coverage_demo_data.dart';
 import '../domain/coverage_models.dart';
 import '../../sessions/domain/session_type.dart';
+import '../../../shared/providers/user_provider.dart';
+import '../../../shared/services/coverage_service.dart';
 import 'coverage_map_widget.dart';
 import 'coverage_toolbar.dart';
 import 'coverage_panels.dart';
-
-import 'dart:ui' as ui;
-import 'dart:typed_data';
 
 class CoveragePage extends StatefulWidget {
   const CoveragePage({super.key});
@@ -29,12 +27,11 @@ class _CoveragePageState extends State<CoveragePage> {
   BitmapDescriptor? _midpointIcon;
   BitmapDescriptor? _mergeHighlightIcon;
 
-  final UserRole _currentUserRole = UserRole.branchManager;
   bool _isEditMode = false;
+  bool _isLoading = true;
 
   String? _drawingMode;
   final List<LatLng> _draftPoints = [];
-
   final TextEditingController _zoneNameController = TextEditingController();
 
   String? _editingZoneId;
@@ -48,26 +45,30 @@ class _CoveragePageState extends State<CoveragePage> {
   int? _highlightDraftMergeIndex;
   int? _highlightEditMergeIndex;
 
-  bool get _canEditZones =>
-      _currentUserRole == UserRole.branchManager ||
-      _currentUserRole == UserRole.generalManager ||
-      _currentUserRole == UserRole.executive;
+  List<TerritoryZone> _zones = [];
+  List<TerritorySubzone> _subzones = [];
+  List<BranchMember> _members = [];
+  List<CoverageRun> _runs = [];
+
+  bool get _canEditZones {
+    final user = UserProvider.of(context);
+    return user.canEditZones;
+  }
 
   bool get _isDrawing => _drawingMode != null;
-
-  bool get _isEditingShape =>
-      _editingZoneId != null || _editingSubzoneId != null;
-
-  bool get _isInteractionLocked =>
-      _isMenuOpen || _isDrawing || _isEditingShape;
+  bool get _isEditingShape => _editingZoneId != null || _editingSubzoneId != null;
+  bool get _isInteractionLocked => _isMenuOpen || _isDrawing || _isEditingShape;
 
   @override
   void initState() {
     super.initState();
-    _selectedMemberIds.addAll(
-      CoverageDemoData.members.map((m) => m.id),
-    );
     _initializeMarkerIcons();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadData();
   }
 
   @override
@@ -76,23 +77,60 @@ class _CoveragePageState extends State<CoveragePage> {
     super.dispose();
   }
 
-  void _setMenuOpen(bool value) => setState(() => _isMenuOpen = value);
+  Future<void> _loadData() async {
+    final user = UserProvider.of(context);
+    setState(() => _isLoading = true);
+
+    try {
+      final results = await Future.wait([
+        CoverageService.fetchZones(user.branchId),
+        CoverageService.fetchSubzones(user.branchId),
+        CoverageService.fetchMembers(user.branchId),
+        CoverageService.fetchRuns(user.branchId),
+      ]);
+
+      if (!mounted) return;
+      setState(() {
+        _zones = results[0] as List<TerritoryZone>;
+        _subzones = results[1] as List<TerritorySubzone>;
+        _members = results[2] as List<BranchMember>;
+        _runs = results[3] as List<CoverageRun>;
+        _selectedMemberIds.addAll(_members.map((m) => m.id));
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load coverage data: $e')),
+      );
+    }
+  }
 
   void _setManualCoverage(
-      TerritorySubzone subzone, ZoneCoverageStatus newStatus) {
-    final index =
-        CoverageDemoData.subzones.indexWhere((s) => s.id == subzone.id);
-    if (index == -1) return;
+      TerritorySubzone subzone, ZoneCoverageStatus newStatus) async {
+    final updated = TerritorySubzone(
+      id: subzone.id,
+      name: subzone.name,
+      branchId: subzone.branchId,
+      points: subzone.points,
+      status: newStatus,
+      manualOverride: true,
+    );
+
     setState(() {
-      CoverageDemoData.subzones[index] = TerritorySubzone(
-        id: subzone.id,
-        name: subzone.name,
-        branchId: subzone.branchId,
-        points: subzone.points,
-        status: newStatus,
-        manualOverride: true,
-      );
+      final index = _subzones.indexWhere((s) => s.id == subzone.id);
+      if (index != -1) _subzones[index] = updated;
     });
+
+    try {
+      await CoverageService.updateSubzone(updated);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update subzone: $e')),
+      );
+    }
   }
 
   void _startDrawingZone() => setState(() {
@@ -124,28 +162,85 @@ class _CoveragePageState extends State<CoveragePage> {
   void _saveDraftPolygon() {
     if (_draftPoints.length < 3 || _drawingMode == null) return;
     _zoneNameController.clear();
-
     final capturedMode = _drawingMode!;
+    final capturedPoints = List<LatLng>.from(_draftPoints);
 
     setState(() {
       _isMenuOpen = true;
       _drawingMode = null;
     });
 
-    CoveragePanels.showSavePolygonDialog(
+    final user = UserProvider.of(context);
+
+    showDialog<void>(
       context: context,
-      drawingMode: capturedMode,
-      controller: _zoneNameController,
-      draftPoints: _draftPoints,
-      onSaved: () => setState(() {
-        _draftPoints.clear();
-        _highlightDraftMergeIndex = null;
-      }),
-      onMenuClosed: () {
-        if (!mounted) return;
-        setState(() => _isMenuOpen = false);
-      },
-    );
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        title: Text(capturedMode == 'subzone'
+            ? 'Name this Subzone'
+            : 'Name this Zone'),
+        content: TextField(
+          controller: _zoneNameController,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: capturedMode == 'subzone' ? 'Subzone Name' : 'Zone Name',
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE93324),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              final name = _zoneNameController.text.trim();
+              if (name.isEmpty) return;
+              Navigator.of(context).pop();
+
+              try {
+                if (capturedMode == 'zone') {
+                  final zone = await CoverageService.createZone(
+                    name: name,
+                    branchId: user.branchId,
+                    points: capturedPoints,
+                  );
+                  setState(() {
+                    _zones.add(zone);
+                    _draftPoints.clear();
+                    _highlightDraftMergeIndex = null;
+                  });
+                } else {
+                  final subzone = await CoverageService.createSubzone(
+                    name: name,
+                    branchId: user.branchId,
+                    points: capturedPoints,
+                  );
+                  setState(() {
+                    _subzones.add(subzone);
+                    _draftPoints.clear();
+                    _highlightDraftMergeIndex = null;
+                  });
+                }
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to save: $e')),
+                );
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    ).whenComplete(() {
+      if (!mounted) return;
+      setState(() => _isMenuOpen = false);
+    });
   }
 
   void _beginZoneVertexEdit(TerritoryZone zone) => setState(() {
@@ -171,36 +266,52 @@ class _CoveragePageState extends State<CoveragePage> {
         _highlightEditMergeIndex = null;
       });
 
-  void _saveVertexEdit() {
+  Future<void> _saveVertexEdit() async {
     if (_editingPoints.length < 3) return;
-    setState(() {
-      if (_editingZoneId != null) {
-        final index = CoverageDemoData.zones
-            .indexWhere((z) => z.id == _editingZoneId);
-        if (index != -1) {
-          final zone = CoverageDemoData.zones[index];
-          CoverageDemoData.zones[index] = TerritoryZone(
-            id: zone.id,
-            name: zone.name,
-            branchId: zone.branchId,
-            points: List<LatLng>.from(_editingPoints),
-          );
-        }
-      } else if (_editingSubzoneId != null) {
-        final index = CoverageDemoData.subzones
-            .indexWhere((s) => s.id == _editingSubzoneId);
-        if (index != -1) {
-          final subzone = CoverageDemoData.subzones[index];
-          CoverageDemoData.subzones[index] = TerritorySubzone(
-            id: subzone.id,
-            name: subzone.name,
-            branchId: subzone.branchId,
-            points: List<LatLng>.from(_editingPoints),
-            status: subzone.status,
-            manualOverride: subzone.manualOverride,
+
+    if (_editingZoneId != null) {
+      final index = _zones.indexWhere((z) => z.id == _editingZoneId);
+      if (index != -1) {
+        final updated = TerritoryZone(
+          id: _zones[index].id,
+          name: _zones[index].name,
+          branchId: _zones[index].branchId,
+          points: List<LatLng>.from(_editingPoints),
+        );
+        setState(() => _zones[index] = updated);
+        try {
+          await CoverageService.updateZone(updated);
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to save zone: $e')),
           );
         }
       }
+    } else if (_editingSubzoneId != null) {
+      final index = _subzones.indexWhere((s) => s.id == _editingSubzoneId);
+      if (index != -1) {
+        final updated = TerritorySubzone(
+          id: _subzones[index].id,
+          name: _subzones[index].name,
+          branchId: _subzones[index].branchId,
+          points: List<LatLng>.from(_editingPoints),
+          status: _subzones[index].status,
+          manualOverride: _subzones[index].manualOverride,
+        );
+        setState(() => _subzones[index] = updated);
+        try {
+          await CoverageService.updateSubzone(updated);
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to save subzone: $e')),
+          );
+        }
+      }
+    }
+
+    setState(() {
       _editingZoneId = null;
       _editingSubzoneId = null;
       _editingPoints.clear();
@@ -208,19 +319,31 @@ class _CoveragePageState extends State<CoveragePage> {
     });
   }
 
-  void _deleteAllZones() {
+  Future<void> _deleteAllZones() async {
+    final user = UserProvider.of(context);
     setState(() => _isMenuOpen = true);
+
     CoveragePanels.showDeleteAllDialog(
       context: context,
-      onConfirmed: () => setState(() {
-        CoverageDemoData.zones.clear();
-        CoverageDemoData.subzones.clear();
-        _draftPoints.clear();
-        _editingPoints.clear();
-        _drawingMode = null;
-        _editingZoneId = null;
-        _editingSubzoneId = null;
-      }),
+      onConfirmed: () async {
+        try {
+          await CoverageService.deleteAllZones(user.branchId);
+          setState(() {
+            _zones.clear();
+            _subzones.clear();
+            _draftPoints.clear();
+            _editingPoints.clear();
+            _drawingMode = null;
+            _editingZoneId = null;
+            _editingSubzoneId = null;
+          });
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to delete zones: $e')),
+          );
+        }
+      },
       onMenuClosed: () {
         if (!mounted) return;
         setState(() => _isMenuOpen = false);
@@ -250,18 +373,26 @@ class _CoveragePageState extends State<CoveragePage> {
       onRename: () => CoveragePanels.showRenameZoneDialog(
         context: context,
         zone: zone,
-        onRenamed: (newName) => setState(() {
-          final index =
-              CoverageDemoData.zones.indexWhere((z) => z.id == zone.id);
-          if (index != -1) {
-            CoverageDemoData.zones[index] = TerritoryZone(
-              id: zone.id,
-              name: newName,
-              branchId: zone.branchId,
-              points: zone.points,
+        onRenamed: (newName) async {
+          final updated = TerritoryZone(
+            id: zone.id,
+            name: newName,
+            branchId: zone.branchId,
+            points: zone.points,
+          );
+          setState(() {
+            final index = _zones.indexWhere((z) => z.id == zone.id);
+            if (index != -1) _zones[index] = updated;
+          });
+          try {
+            await CoverageService.updateZone(updated);
+          } catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to rename zone: $e')),
             );
           }
-        }),
+        },
         onMenuClosed: () {
           if (!mounted) return;
           setState(() => _isMenuOpen = false);
@@ -270,9 +401,17 @@ class _CoveragePageState extends State<CoveragePage> {
       onDelete: () => CoveragePanels.showDeleteZoneDialog(
         context: context,
         zone: zone,
-        onConfirmed: () => setState(() {
-          CoverageDemoData.zones.removeWhere((z) => z.id == zone.id);
-        }),
+        onConfirmed: () async {
+          setState(() => _zones.removeWhere((z) => z.id == zone.id));
+          try {
+            await CoverageService.deleteZone(zone.id);
+          } catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to delete zone: $e')),
+            );
+          }
+        },
         onMenuClosed: () {
           if (!mounted) return;
           setState(() => _isMenuOpen = false);
@@ -294,20 +433,28 @@ class _CoveragePageState extends State<CoveragePage> {
       onRename: () => CoveragePanels.showRenameSubzoneDialog(
         context: context,
         subzone: subzone,
-        onRenamed: (newName) => setState(() {
-          final index = CoverageDemoData.subzones
-              .indexWhere((s) => s.id == subzone.id);
-          if (index != -1) {
-            CoverageDemoData.subzones[index] = TerritorySubzone(
-              id: subzone.id,
-              name: newName,
-              branchId: subzone.branchId,
-              points: subzone.points,
-              status: subzone.status,
-              manualOverride: subzone.manualOverride,
+        onRenamed: (newName) async {
+          final updated = TerritorySubzone(
+            id: subzone.id,
+            name: newName,
+            branchId: subzone.branchId,
+            points: subzone.points,
+            status: subzone.status,
+            manualOverride: subzone.manualOverride,
+          );
+          setState(() {
+            final index = _subzones.indexWhere((s) => s.id == subzone.id);
+            if (index != -1) _subzones[index] = updated;
+          });
+          try {
+            await CoverageService.updateSubzone(updated);
+          } catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to rename subzone: $e')),
             );
           }
-        }),
+        },
         onMenuClosed: () {
           if (!mounted) return;
           setState(() => _isMenuOpen = false);
@@ -317,9 +464,18 @@ class _CoveragePageState extends State<CoveragePage> {
       onDelete: () => CoveragePanels.showDeleteSubzoneDialog(
         context: context,
         subzone: subzone,
-        onConfirmed: () => setState(() {
-          CoverageDemoData.subzones.removeWhere((s) => s.id == subzone.id);
-        }),
+        onConfirmed: () async {
+          setState(
+              () => _subzones.removeWhere((s) => s.id == subzone.id));
+          try {
+            await CoverageService.deleteSubzone(subzone.id);
+          } catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to delete subzone: $e')),
+            );
+          }
+        },
         onMenuClosed: () {
           if (!mounted) return;
           setState(() => _isMenuOpen = false);
@@ -365,33 +521,34 @@ class _CoveragePageState extends State<CoveragePage> {
 
   void _updateDraftPoint(int index, LatLng position) =>
       setState(() => _draftPoints[index] = position);
-
   void _removeDraftPoint(int index) =>
       setState(() => _draftPoints.removeAt(index));
-
   void _insertDraftPoint(int index, LatLng position) =>
       setState(() => _draftPoints.insert(index, position));
-
   void _setHighlightDraftMerge(int? index) =>
       setState(() => _highlightDraftMergeIndex = index);
-
   void _updateEditPoint(int index, LatLng position) =>
       setState(() => _editingPoints[index] = position);
-
   void _removeEditPoint(int index) =>
       setState(() => _editingPoints.removeAt(index));
-
   void _insertEditPoint(int index, LatLng position) =>
       setState(() => _editingPoints.insert(index, position));
-
   void _setHighlightEditMerge(int? index) =>
       setState(() => _highlightEditMergeIndex = index);
 
   @override
   Widget build(BuildContext context) {
+    final user = UserProvider.of(context);
+
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(CoverageDemoData.branchTitle),
+        title: Text(user.branchName),
         actions: [
           if (_canEditZones)
             IconButton(
@@ -404,7 +561,6 @@ class _CoveragePageState extends State<CoveragePage> {
       ),
       body: Stack(
         children: [
-          // map fills entire body
           Positioned.fill(
             child: CoverageMapWidget(
               isEditMode: _isEditMode,
@@ -427,6 +583,10 @@ class _CoveragePageState extends State<CoveragePage> {
               editPointIcon: _editPointIcon,
               midpointIcon: _midpointIcon,
               mergeHighlightIcon: _mergeHighlightIcon,
+              zones: _zones,
+              subzones: _subzones,
+              members: _members,
+              runs: _runs,
               onMapTap: _addDraftPoint,
               onSubzoneViewTap: (subzone) {
                 setState(() => _selectedSubzone = subzone);
@@ -446,8 +606,6 @@ class _CoveragePageState extends State<CoveragePage> {
                   .showSnackBar(SnackBar(content: Text(message))),
             ),
           ),
-
-          // floating view toolbar
           if (!_isEditMode)
             Positioned(
               top: 12,
@@ -456,6 +614,7 @@ class _CoveragePageState extends State<CoveragePage> {
                 selectedMemberIds: _selectedMemberIds,
                 selectedType: _selectedType,
                 showZones: _showZones,
+                members: _members,
                 onMemberToggled: (id, selected) => setState(() {
                   if (selected) {
                     _selectedMemberIds.add(id);
@@ -463,13 +622,12 @@ class _CoveragePageState extends State<CoveragePage> {
                     _selectedMemberIds.remove(id);
                   }
                 }),
-                onTypeChanged: (type) => setState(() => _selectedType = type),
+                onTypeChanged: (type) =>
+                    setState(() => _selectedType = type),
                 onShowZonesChanged: (value) =>
                     setState(() => _showZones = value),
               ),
             ),
-
-          // floating edit toolbar
           if (_isEditMode)
             Positioned(
               top: 12,
@@ -481,8 +639,6 @@ class _CoveragePageState extends State<CoveragePage> {
                 onDeleteAll: _deleteAllZones,
               ),
             ),
-
-          // floating drawing/editing banner
           if (_isEditMode)
             Positioned(
               bottom: 16,

@@ -108,7 +108,6 @@ class _FeedPageState extends State<FeedPage>
               item['branches']?['divisions']?['name'] as String?;
           return divisionName == user.divisionName;
         case FeedScope.branch:
-          print('Filtering branch: item=${item['branch_id']} user=${user.branchId}');
           return item['branch_id'] == user.branchId;
         case FeedScope.me:
           return item['profiles']?['id'] == user.id;

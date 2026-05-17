@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'dart:ui' as ui;
 
-import '../data/coverage_demo_data.dart';
 import '../domain/coverage_models.dart';
 import '../../sessions/domain/session_type.dart';
-
-import 'dart:ui' as ui;
 
 class CoverageViewToolbar extends StatefulWidget {
   final Set<String> selectedMemberIds;
   final SessionType? selectedType;
   final bool showZones;
+  final List<BranchMember> members;
   final void Function(String id, bool selected) onMemberToggled;
   final void Function(SessionType? type) onTypeChanged;
   final void Function(bool value) onShowZonesChanged;
@@ -20,6 +19,7 @@ class CoverageViewToolbar extends StatefulWidget {
     required this.selectedMemberIds,
     required this.selectedType,
     required this.showZones,
+    required this.members,
     required this.onMemberToggled,
     required this.onTypeChanged,
     required this.onShowZonesChanged,
@@ -32,43 +32,45 @@ class CoverageViewToolbar extends StatefulWidget {
 class _CoverageViewToolbarState extends State<CoverageViewToolbar> {
   bool _expanded = false;
 
-    bool get _hasActiveFilters {
+  bool get _hasActiveFilters {
     final allMembersSelected =
-        widget.selectedMemberIds.length == CoverageDemoData.members.length;
-    return !allMembersSelected || widget.selectedType != null || !widget.showZones;
-    }
+        widget.selectedMemberIds.length == widget.members.length;
+    return !allMembersSelected ||
+        widget.selectedType != null ||
+        !widget.showZones;
+  }
 
-    @override
-    Widget build(BuildContext context) {
-        return AnimatedSize(
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeOut,
-            alignment: Alignment.topLeft,
-            child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                constraints: const BoxConstraints(maxWidth: 300),
-                decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.85),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                    BoxShadow(
-                        color: Colors.black.withOpacity(0.12),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                    ),
-                    ],
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOut,
+      alignment: Alignment.topLeft,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 300),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.85),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.12),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
                 ),
-                child: _expanded
-                    ? _buildExpanded(context)
-                    : _buildCollapsed(context),
-                ),
+              ],
             ),
-            ),
-        );
-    }
+            child: _expanded
+                ? _buildExpanded(context)
+                : _buildCollapsed(context),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildCollapsed(BuildContext context) {
     return GestureDetector(
@@ -106,8 +108,7 @@ class _CoverageViewToolbarState extends State<CoverageViewToolbar> {
             children: [
               const Text(
                 'Filters',
-                style: TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 15),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               ),
               GestureDetector(
                 onTap: () => setState(() => _expanded = false),
@@ -127,7 +128,7 @@ class _CoverageViewToolbarState extends State<CoverageViewToolbar> {
           Wrap(
             spacing: 6,
             runSpacing: 6,
-            children: CoverageDemoData.members.map((member) {
+            children: widget.members.map((member) {
               final isSelected =
                   widget.selectedMemberIds.contains(member.id);
               return GestureDetector(
@@ -139,7 +140,9 @@ class _CoverageViewToolbarState extends State<CoverageViewToolbar> {
                       horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     border: Border.all(
-                      color: isSelected ? member.color : Colors.grey.shade300,
+                      color: isSelected
+                          ? member.color
+                          : Colors.grey.shade300,
                       width: isSelected ? 2 : 1,
                     ),
                     borderRadius: BorderRadius.circular(20),
@@ -189,14 +192,12 @@ class _CoverageViewToolbarState extends State<CoverageViewToolbar> {
             runSpacing: 6,
             children: [
               _typeChip('All', null),
-              ...SessionType.values
-                  .map((t) => _typeChip(t.label, t)),
+              ...SessionType.values.map((t) => _typeChip(t.label, t)),
             ],
           ),
           const SizedBox(height: 12),
           GestureDetector(
-            onTap: () =>
-                widget.onShowZonesChanged(!widget.showZones),
+            onTap: () => widget.onShowZonesChanged(!widget.showZones),
             child: Row(
               children: [
                 SizedBox(
@@ -204,15 +205,13 @@ class _CoverageViewToolbarState extends State<CoverageViewToolbar> {
                   child: Switch(
                     value: widget.showZones,
                     onChanged: widget.onShowZonesChanged,
-                    materialTapTargetSize:
-                        MaterialTapTargetSize.shrinkWrap,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                 ),
                 const SizedBox(width: 8),
                 const Text(
                   'Show Zones',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 13),
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                 ),
               ],
             ),
@@ -228,8 +227,7 @@ class _CoverageViewToolbarState extends State<CoverageViewToolbar> {
       onTap: () => widget.onTypeChanged(type),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           border: Border.all(
             color: isSelected
@@ -269,50 +267,51 @@ class CoverageEditToolbar extends StatelessWidget {
     required this.onDeleteAll,
   });
 
-    @override
-    Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
     return ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: BackdropFilter(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.85),
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
-                BoxShadow(
+              BoxShadow(
                 color: Colors.black.withOpacity(0.12),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
-                ),
+              ),
             ],
-            ),
-            child: Row(
+          ),
+          child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-                _editAction(
+              _editAction(
                 icon: Icons.crop_square,
                 label: 'Zone',
                 onTap: onStartDrawingZone,
-                ),
-                _editAction(
+              ),
+              _editAction(
                 icon: Icons.grid_view,
                 label: 'Subzone',
                 onTap: onStartDrawingSubzone,
-                ),
-                _editAction(
+              ),
+              _editAction(
                 icon: Icons.delete_outline,
                 label: 'Delete All',
                 onTap: onDeleteAll,
                 color: Colors.red,
-                ),
+              ),
             ],
-            ),
+          ),
         ),
-        ),
+      ),
     );
-    }
+  }
 
   Widget _editAction({
     required IconData icon,
@@ -366,34 +365,34 @@ class CoverageDrawingBanner extends StatelessWidget {
   bool get _isDrawing => drawingMode != null;
   bool get _isEditingShape => editingPoints.isNotEmpty;
 
-    @override
-    Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
     if (!_isDrawing && !_isEditingShape) return const SizedBox.shrink();
 
     return ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: BackdropFilter(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.9),
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
-                BoxShadow(
+              BoxShadow(
                 color: Colors.black.withOpacity(0.12),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
-                ),
+              ),
             ],
-            ),
-            child: _isDrawing
-                ? _buildDrawingControls(context)
-                : _buildEditControls(context),
+          ),
+          child: _isDrawing
+              ? _buildDrawingControls(context)
+              : _buildEditControls(context),
         ),
-        ),
+      ),
     );
-    }
+  }
 
   Widget _buildDrawingControls(BuildContext context) {
     return Column(
@@ -401,11 +400,8 @@ class CoverageDrawingBanner extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          drawingMode == 'zone'
-              ? 'Drawing Zone'
-              : 'Drawing Subzone',
-          style: const TextStyle(
-              fontWeight: FontWeight.bold, fontSize: 14),
+          drawingMode == 'zone' ? 'Drawing Zone' : 'Drawing Subzone',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
         ),
         const SizedBox(height: 2),
         Text(
@@ -417,8 +413,7 @@ class CoverageDrawingBanner extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed:
-                    draftPoints.isNotEmpty ? onUndoPoint : null,
+                onPressed: draftPoints.isNotEmpty ? onUndoPoint : null,
                 child: const Text('Undo'),
               ),
             ),
