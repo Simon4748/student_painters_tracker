@@ -12,6 +12,10 @@ import '../../../shared/models/feed_store.dart';
 import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../shared/providers/user_provider.dart';
+import '../../../shared/services/session_service.dart';
+
 class TrackerPage extends StatefulWidget {
   const TrackerPage({super.key});
 
@@ -47,13 +51,6 @@ class _TrackerPageState extends State<TrackerPage> {
   ];
 
   final ImagePicker _imagePicker = ImagePicker();
-
-  final String _currentUserId = 'manager_1';
-  final String _currentUserName = 'Simon';
-  final String _currentUserRole = 'Branch Manager';
-  final String _currentBranchId = 'brattleboro_branch';
-  final String _currentBranchName = 'Brattleboro Branch';
-  final String _currentDivisionName = 'New England';
 
   @override
   void dispose() {
@@ -282,43 +279,38 @@ class _TrackerPageState extends State<TrackerPage> {
     );
   }
 
-  void _finalizeSession({
+  Future<void> _finalizeSession({
     required String title,
     required String description,
     required List<Uint8List> photos,
-  }) {
+  }) async {
+    final user = UserProvider.of(context);
     final type = _selectedSessionType;
     final elapsed = _elapsed;
+    final points = List<LatLng>.from(_routePoints);
 
-    if (_routePoints.isNotEmpty) {
-      final session = TrackedSession(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        type: type,
-        elapsed: elapsed,
-        completedAt: DateTime.now(),
-        routePoints: List<LatLng>.from(_routePoints),
-      );
+    if (points.isEmpty) {
+      _resetSession();
+      return;
+    }
 
-      SessionStore.sessions.insert(0, session);
-
-      final feedItem = FeedItem(
-        id: 'run_${DateTime.now().millisecondsSinceEpoch}',
-        type: FeedItemType.run,
-        authorId: _currentUserId,
-        authorName: _currentUserName,
-        authorRole: _currentUserRole,
-        branchId: _currentBranchId,
-        branchName: _currentBranchName,
-        divisionName: _currentDivisionName,
-        createdAt: DateTime.now(),
+    try {
+      await SessionService.saveSession(
+        userId: user.id,
+        branchId: user.branchId,
         sessionType: type,
-        runDuration: elapsed,
-        routePointCount: _routePoints.length,
-        routePoints: List<LatLng>.from(_routePoints),
-        photoBytes: photos.isNotEmpty ? photos : null,
+        durationSeconds: elapsed.inSeconds,
+        distanceMiles: _distanceMiles,
+        routePoints: points,
+        title: title,
+        description: description,
+        photos: photos,
       );
-
-      FeedStore.items.insert(0, feedItem);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save session: $e')),
+      );
     }
 
     _resetSession();

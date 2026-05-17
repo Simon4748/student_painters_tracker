@@ -9,6 +9,8 @@ import 'features/profile/presentation/profile_page.dart';
 import 'features/auth/presentation/login_page.dart';
 import 'core/theme/app_theme.dart';
 
+import 'shared/providers/user_provider.dart';
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -48,7 +50,7 @@ class _AuthGateState extends State<_AuthGate> {
       return const LoginPage();
     }
 
-    return const _MainApp();
+    return const UserProviderLoader(child: _MainApp());
   }
 }
 

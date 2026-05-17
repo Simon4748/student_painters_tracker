@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../shared/models/feed_item.dart';
 import '../../../shared/models/feed_scope.dart';
-import '../../../shared/models/feed_store.dart';
+import '../../../shared/providers/user_provider.dart';
+import '../../../shared/services/feed_service.dart';
 import 'create_post_page.dart';
 import 'feed_item_card.dart';
 
@@ -13,19 +13,20 @@ class FeedPage extends StatefulWidget {
   State<FeedPage> createState() => _FeedPageState();
 }
 
-class _FeedPageState extends State<FeedPage> with SingleTickerProviderStateMixin {
-  final String _currentUserId = 'manager_1';
-  final String _currentBranchId = 'brattleboro_branch';
-  final String _currentDivisionName = 'New England';
-  final String _currentUserRole = 'Branch Manager';
-
+class _FeedPageState extends State<FeedPage>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late FeedScope _selectedScope;
+
+  List<Map<String, dynamic>> _allItems = [];
+  bool _isLoading = true;
+  bool _scopeInitialized = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _selectedScope = _defaultScopeForRole(_currentUserRole);
+    _selectedScope = FeedScope.branch;
     _tabController = TabController(
       length: FeedScope.values.length,
       vsync: this,
@@ -41,6 +42,18 @@ class _FeedPageState extends State<FeedPage> with SingleTickerProviderStateMixin
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_scopeInitialized) {
+      final user = UserProvider.of(context);
+      _selectedScope = _defaultScopeForRole(user.role);
+      _tabController.animateTo(FeedScope.values.indexOf(_selectedScope));
+      _scopeInitialized = true;
+    }
+    _loadFeed();
+  }
+
+  @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
@@ -48,30 +61,57 @@ class _FeedPageState extends State<FeedPage> with SingleTickerProviderStateMixin
 
   FeedScope _defaultScopeForRole(String role) {
     switch (role) {
-      case 'Executive':
+      case 'executive':
         return FeedScope.company;
-      case 'General Manager':
+      case 'general_manager':
         return FeedScope.division;
-      case 'Branch Manager':
+      case 'branch_manager':
         return FeedScope.division;
-      case 'Marketer':
+      case 'marketer':
         return FeedScope.branch;
       default:
         return FeedScope.branch;
     }
   }
 
-  List<FeedItem> _filteredItems() {
-    return FeedStore.items.where((item) {
+  Future<void> _loadFeed() async {
+    final user = UserProvider.of(context);
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final items = await FeedService.fetchFeedForBranch(user.branchId);
+      if (!mounted) return;
+      setState(() {
+        _allItems = items;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<Map<String, dynamic>> _filteredItems() {
+    final user = UserProvider.of(context);
+    return _allItems.where((item) {
       switch (_selectedScope) {
         case FeedScope.company:
           return true;
         case FeedScope.division:
-          return item.divisionName == _currentDivisionName;
+          final divisionName =
+              item['branches']?['divisions']?['name'] as String?;
+          return divisionName == user.divisionName;
         case FeedScope.branch:
-          return item.branchId == _currentBranchId;
+          print('Filtering branch: item=${item['branch_id']} user=${user.branchId}');
+          return item['branch_id'] == user.branchId;
         case FeedScope.me:
-          return item.authorId == _currentUserId;
+          return item['profiles']?['id'] == user.id;
       }
     }).toList();
   }
@@ -97,7 +137,7 @@ class _FeedPageState extends State<FeedPage> with SingleTickerProviderStateMixin
     );
 
     if (created == true && mounted) {
-      setState(() {});
+      _loadFeed();
     }
   }
 
@@ -138,21 +178,38 @@ class _FeedPageState extends State<FeedPage> with SingleTickerProviderStateMixin
         icon: const Icon(Icons.add),
         label: const Text('Post'),
       ),
-      body: items.isEmpty
-          ? const Center(child: Text('No feed items yet'))
-          : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
-              itemCount: items.length,
-              itemBuilder: (context, index) {
-                return FeedItemCard(
-                  item: items[index],
-                  onChanged: () {
-                    if (!mounted) return;
-                    setState(() {});
-                  },
-                );
-              },
-            ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Failed to load feed: $_error'),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: _loadFeed,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : items.isEmpty
+                  ? const Center(child: Text('No feed items yet'))
+                  : RefreshIndicator(
+                      onRefresh: _loadFeed,
+                      child: ListView.builder(
+                        padding:
+                            const EdgeInsets.fromLTRB(16, 12, 16, 80),
+                        itemCount: items.length,
+                        itemBuilder: (context, index) {
+                          return FeedItemCard(
+                            item: items[index],
+                            onChanged: _loadFeed,
+                          );
+                        },
+                      ),
+                    ),
     );
   }
 }

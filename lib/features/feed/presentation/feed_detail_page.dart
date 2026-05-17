@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import '../../../shared/models/feed_comment.dart';
-import '../../../shared/models/feed_item.dart';
-import '../../../shared/models/feed_reaction.dart';
-import '../../../shared/models/feed_store.dart';
+import '../../../shared/providers/user_provider.dart';
+import '../../../shared/services/feed_service.dart';
 import '../../../shared/utils/static_map_helper.dart';
 
 class FeedDetailPage extends StatefulWidget {
@@ -20,16 +19,19 @@ class FeedDetailPage extends StatefulWidget {
 }
 
 class _FeedDetailPageState extends State<FeedDetailPage> {
-  final String _currentUserId = 'manager_1';
-  final String _currentUserName = 'Simon';
-  final String _currentUserRole = 'Branch Manager';
-
   final TextEditingController _commentController = TextEditingController();
   String? _replyingToCommentId;
   String? _replyingToName;
 
-  FeedItem get _item =>
-      FeedStore.items.firstWhere((element) => element.id == widget.itemId);
+  Map<String, dynamic>? _item;
+  bool _isLoading = true;
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadItem();
+  }
 
   @override
   void dispose() {
@@ -37,119 +39,124 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
     super.dispose();
   }
 
-  String _formatDuration(Duration duration) {
-    final hours = duration.inHours.toString().padLeft(2, '0');
-    final minutes = (duration.inMinutes % 60).toString().padLeft(2, '0');
-    final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
-    return '$hours:$minutes:$seconds';
+  Future<void> _loadItem() async {
+    setState(() => _isLoading = true);
+    try {
+      final items = await FeedService.fetchFeedItemById(widget.itemId);
+      if (!mounted) return;
+      setState(() {
+        _item = items;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    }
+  }
+
+  String _formatDuration(int seconds) {
+    final h = (seconds ~/ 3600).toString().padLeft(2, '0');
+    final m = ((seconds % 3600) ~/ 60).toString().padLeft(2, '0');
+    final s = (seconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
   }
 
   bool get _isLikedByCurrentUser {
-    return _item.reactions.any((reaction) => reaction.userId == _currentUserId);
+    final user = UserProvider.of(context);
+    final reactions = List<Map<String, dynamic>>.from(
+        _item?['feed_reactions'] ?? []);
+    return reactions.any((r) => r['user_id'] == user.id);
   }
 
-  void _toggleLike() {
-    final index = FeedStore.items.indexWhere((item) => item.id == widget.itemId);
-    if (index == -1) return;
+  int get _reactionCount {
+    return (_item?['feed_reactions'] as List?)?.length ?? 0;
+  }
 
-    final current = FeedStore.items[index];
-    final alreadyLiked = current.reactions.any((r) => r.userId == _currentUserId);
+  List<Map<String, dynamic>> get _topLevelComments {
+    final comments = List<Map<String, dynamic>>.from(
+        _item?['feed_comments'] ?? []);
+    return comments
+        .where((c) => c['parent_comment_id'] == null)
+        .toList();
+  }
 
-    final updatedReactions = List<FeedReaction>.from(current.reactions);
+  List<Map<String, dynamic>> _repliesFor(String parentId) {
+    final comments = List<Map<String, dynamic>>.from(
+        _item?['feed_comments'] ?? []);
+    return comments
+        .where((c) => c['parent_comment_id'] == parentId)
+        .toList();
+  }
 
-    if (alreadyLiked) {
-      updatedReactions.removeWhere((reaction) => reaction.userId == _currentUserId);
-    } else {
-      updatedReactions.add(
-        FeedReaction(
-          userId: _currentUserId,
-          userName: _currentUserName,
-        ),
+  List<LatLng> get _routePoints {
+    final session = _item?['sessions'];
+    if (session == null) return [];
+    final points =
+        List<Map<String, dynamic>>.from(session['route_points'] ?? []);
+    return points
+        .map((p) => LatLng(p['lat'] as double, p['lng'] as double))
+        .toList();
+  }
+
+  Future<void> _toggleLike() async {
+    if (_item == null) return;
+    final user = UserProvider.of(context);
+    final isLiked = _isLikedByCurrentUser;
+
+    try {
+      await FeedService.toggleReaction(
+        feedItemId: widget.itemId,
+        userId: user.id,
+        isLiked: isLiked,
+      );
+      await _loadItem();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update reaction: $e')),
       );
     }
-
-    FeedStore.items[index] = FeedItem(
-      id: current.id,
-      type: current.type,
-      authorId: current.authorId,
-      authorName: current.authorName,
-      authorRole: current.authorRole,
-      branchId: current.branchId,
-      branchName: current.branchName,
-      divisionName: current.divisionName,
-      createdAt: current.createdAt,
-      sessionType: current.sessionType,
-      runDuration: current.runDuration,
-      routePointCount: current.routePointCount,
-      routePoints: current.routePoints,
-      photoBytes: current.photoBytes,
-      title: current.title,
-      description: current.description,
-      imageBytesList: current.imageBytesList,
-      reactions: updatedReactions,
-      comments: current.comments,
-    );
-
-    setState(() {});
   }
 
-  void _submitComment() {
+  Future<void> _submitComment() async {
     final text = _commentController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _isSubmitting) return;
 
-    final index = FeedStore.items.indexWhere((item) => item.id == widget.itemId);
-    if (index == -1) return;
+    final user = UserProvider.of(context);
 
-    final current = FeedStore.items[index];
-    final updatedComments = List<FeedComment>.from(current.comments);
+    setState(() => _isSubmitting = true);
 
-    updatedComments.add(
-      FeedComment(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        feedItemId: current.id,
-        authorId: _currentUserId,
-        authorName: _currentUserName,
-        authorRole: _currentUserRole,
+    try {
+      await FeedService.addComment(
+        feedItemId: widget.itemId,
+        authorId: user.id,
         text: text,
-        createdAt: DateTime.now(),
         parentCommentId: _replyingToCommentId,
-      ),
-    );
+      );
 
-    FeedStore.items[index] = FeedItem(
-      id: current.id,
-      type: current.type,
-      authorId: current.authorId,
-      authorName: current.authorName,
-      authorRole: current.authorRole,
-      branchId: current.branchId,
-      branchName: current.branchName,
-      divisionName: current.divisionName,
-      createdAt: current.createdAt,
-      sessionType: current.sessionType,
-      runDuration: current.runDuration,
-      routePointCount: current.routePointCount,
-      routePoints: current.routePoints,
-      photoBytes: current.photoBytes,
-      title: current.title,
-      description: current.description,
-      imageBytesList: current.imageBytesList,
-      reactions: current.reactions,
-      comments: updatedComments,
-    );
+      _commentController.clear();
+      _replyingToCommentId = null;
+      _replyingToName = null;
 
-    _commentController.clear();
-    _replyingToCommentId = null;
-    _replyingToName = null;
-
-    setState(() {});
-    FocusScope.of(context).unfocus();
+      await _loadItem();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to post comment: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        FocusScope.of(context).unfocus();
+      }
+    }
   }
 
-  void _startReply(FeedComment comment) {
+  void _startReply(Map<String, dynamic> comment) {
     setState(() {
-      _replyingToCommentId = comment.id;
-      _replyingToName = comment.authorName;
+      _replyingToCommentId = comment['id'] as String;
+      _replyingToName =
+          comment['profiles']?['full_name'] as String? ?? 'Unknown';
     });
   }
 
@@ -160,71 +167,52 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
     });
   }
 
-  List<FeedComment> _topLevelComments() {
-    return _item.comments.where((comment) => !comment.isReply).toList();
-  }
-
-  List<FeedComment> _repliesFor(String parentCommentId) {
-    return _item.comments
-        .where((comment) => comment.parentCommentId == parentCommentId)
-        .toList();
-  }
-
   Widget _buildRunImage() {
-    if (_item.photoBytes != null && _item.photoBytes!.isNotEmpty) {
-      return Image.memory(
-        _item.photoBytes!.first,
-        width: double.infinity,
-        height: 260,
-        fit: BoxFit.cover,
-      );
-    }
+    final photos = List<Map<String, dynamic>>.from(
+        _item?['feed_photos'] ?? []);
 
-    if (_item.routePoints != null && _item.routePoints!.isNotEmpty) {
-      final url = StaticMapHelper.buildRunSnapshotUrl(
-        _item.routePoints!,
-        width: 1200,
-        height: 520,
-      );
-
+    if (photos.isNotEmpty) {
+      final url =
+          FeedService.getPhotoUrl(photos.first['storage_path'] as String);
       return Image.network(
         url,
         width: double.infinity,
         height: 260,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Container(
-          height: 260,
-          color: Colors.grey.shade200,
-          alignment: Alignment.center,
-          child: const Text('Run snapshot unavailable'),
-        ),
+        errorBuilder: (_, __, ___) => _imageFallback(260),
       );
     }
 
-    return Container(
-      height: 260,
-      color: Colors.grey.shade200,
-      alignment: Alignment.center,
-      child: const Text('No run image available'),
-    );
+    final points = _routePoints;
+    if (points.isNotEmpty) {
+      final url = StaticMapHelper.buildRunSnapshotUrl(
+        points,
+        width: 1200,
+        height: 520,
+      );
+      return Image.network(
+        url,
+        width: double.infinity,
+        height: 260,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _imageFallback(260),
+      );
+    }
+
+    return _imageFallback(260);
   }
 
   Widget _buildPostImages() {
-    final images = _item.imageBytesList ?? const [];
+    final photos = List<Map<String, dynamic>>.from(
+        _item?['feed_photos'] ?? []);
 
-    if (images.isEmpty) {
-      return Container(
-        height: 240,
-        width: double.infinity,
-        color: Colors.grey.shade200,
-        alignment: Alignment.center,
-        child: const Text('No photos attached'),
-      );
-    }
+    if (photos.isEmpty) return _imageFallback(240);
 
-    if (images.length == 1) {
-      return Image.memory(
-        images.first,
+    if (photos.length == 1) {
+      final url =
+          FeedService.getPhotoUrl(photos.first['storage_path'] as String);
+      return Image.network(
+        url,
         width: double.infinity,
         height: 260,
         fit: BoxFit.cover,
@@ -235,14 +223,16 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
       height: 260,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: images.length,
+        itemCount: photos.length,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
+          final url = FeedService.getPhotoUrl(
+              photos[index]['storage_path'] as String);
           return ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image.memory(
-              images[index],
+            child: Image.network(
+              url,
               width: 260,
               height: 260,
               fit: BoxFit.cover,
@@ -253,8 +243,24 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
     );
   }
 
-  Widget _buildCommentTile(FeedComment comment) {
-    final replies = _repliesFor(comment.id);
+  Widget _imageFallback(double height) {
+    return Container(
+      height: height,
+      color: Colors.grey.shade200,
+      alignment: Alignment.center,
+      child: const Text('No image available'),
+    );
+  }
+
+  Widget _buildCommentTile(Map<String, dynamic> comment) {
+    final replies = _repliesFor(comment['id'] as String);
+    final authorName =
+        comment['profiles']?['full_name'] as String? ?? 'Unknown';
+    final authorRole =
+        comment['profiles']?['role'] as String? ?? '';
+    final text = comment['text'] as String? ?? '';
+    final createdAt =
+        DateTime.parse(comment['created_at'] as String);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -270,16 +276,16 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${comment.authorName} • ${comment.authorRole}',
+                '$authorName • $authorRole',
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 4),
-              Text(comment.text),
+              Text(text),
               const SizedBox(height: 8),
               Row(
                 children: [
                   Text(
-                    DateFormat.yMd().add_jm().format(comment.createdAt),
+                    DateFormat.yMd().add_jm().format(createdAt),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(width: 16),
@@ -303,6 +309,13 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
             padding: const EdgeInsets.only(left: 20),
             child: Column(
               children: replies.map((reply) {
+                final replyAuthor =
+                    reply['profiles']?['full_name'] as String? ?? 'Unknown';
+                final replyRole =
+                    reply['profiles']?['role'] as String? ?? '';
+                final replyText = reply['text'] as String? ?? '';
+                final replyCreatedAt =
+                    DateTime.parse(reply['created_at'] as String);
                 return Container(
                   width: double.infinity,
                   margin: const EdgeInsets.only(bottom: 8),
@@ -316,14 +329,15 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${reply.authorName} • ${reply.authorRole}',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        '$replyAuthor • $replyRole',
+                        style:
+                            const TextStyle(fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 4),
-                      Text(reply.text),
+                      Text(replyText),
                       const SizedBox(height: 8),
                       Text(
-                        DateFormat.yMd().add_jm().format(reply.createdAt),
+                        DateFormat.yMd().add_jm().format(replyCreatedAt),
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
@@ -338,12 +352,35 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final timestamp = DateFormat.yMd().add_jm().format(_item.createdAt);
-    final topComments = _topLevelComments();
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_item == null) {
+      return const Scaffold(
+        body: Center(child: Text('Post not found')),
+      );
+    }
+
+    final itemType = _item!['type'] as String? ?? 'post';
+    final timestamp =
+        DateFormat.yMd().add_jm().format(DateTime.parse(_item!['created_at'] as String));
+    final authorName =
+        _item!['profiles']?['full_name'] as String? ?? 'Unknown';
+    final authorRole = _item!['profiles']?['role'] as String? ?? '';
+    final branchName = _item!['branches']?['name'] as String? ?? '';
+    final divisionName =
+        _item!['branches']?['divisions']?['name'] as String? ?? '';
+    final session = _item!['sessions'];
+    final durationSeconds = session?['duration_seconds'] as int?;
+    final sessionType = session?['session_type'] as String?;
+    final topComments = _topLevelComments;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_item.type == FeedItemType.run ? 'Run Details' : 'Post Details'),
+        title: Text(itemType == 'run' ? 'Run Details' : 'Post Details'),
       ),
       body: Column(
         children: [
@@ -352,51 +389,60 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _item.type == FeedItemType.run ? _buildRunImage() : _buildPostImages(),
+                  itemType == 'run'
+                      ? _buildRunImage()
+                      : _buildPostImages(),
                   Padding(
                     padding: const EdgeInsets.all(16),
-                    child: _item.type == FeedItemType.run
+                    child: itemType == 'run'
                         ? Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${_item.authorName} logged a run',
-                                style: Theme.of(context).textTheme.headlineSmall,
+                                '$authorName logged a run',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineSmall,
                               ),
                               const SizedBox(height: 8),
-                              Text('${_item.branchName} • ${_item.divisionName}'),
-                              Text('Role: ${_item.authorRole}'),
+                              Text('$branchName • $divisionName'),
+                              Text('Role: $authorRole'),
                               const SizedBox(height: 8),
                               Text('Completed: $timestamp'),
                               const SizedBox(height: 16),
-                              if (_item.sessionType != null)
+                              if (sessionType != null)
                                 Text(
-                                  'Session Type: ${_item.sessionType!.label}',
-                                  style: Theme.of(context).textTheme.titleMedium,
+                                  'Session Type: $sessionType',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium,
                                 ),
                               const SizedBox(height: 8),
-                              if (_item.runDuration != null)
-                                Text('Duration: ${_formatDuration(_item.runDuration!)}'),
-                              if (_item.routePointCount != null)
-                                Text('Route Points: ${_item.routePointCount}'),
+                              if (durationSeconds != null)
+                                Text(
+                                    'Duration: ${_formatDuration(durationSeconds)}'),
                             ],
                           )
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _item.title ?? 'Untitled Post',
-                                style: Theme.of(context).textTheme.headlineSmall,
+                                _item!['title'] as String? ??
+                                    'Untitled Post',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineSmall,
                               ),
                               const SizedBox(height: 8),
-                              Text('By ${_item.authorName} • ${_item.authorRole}'),
-                              Text('${_item.branchName} • ${_item.divisionName}'),
+                              Text('By $authorName • $authorRole'),
+                              Text('$branchName • $divisionName'),
                               const SizedBox(height: 8),
                               Text('Posted: $timestamp'),
                               const SizedBox(height: 16),
                               Text(
-                                _item.description ?? '',
-                                style: Theme.of(context).textTheme.bodyLarge,
+                                _item!['description'] as String? ?? '',
+                                style:
+                                    Theme.of(context).textTheme.bodyLarge,
                               ),
                             ],
                           ),
@@ -408,11 +454,14 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
                         IconButton(
                           onPressed: _toggleLike,
                           icon: Icon(
-                            _isLikedByCurrentUser ? Icons.favorite : Icons.favorite_border,
-                            color: _isLikedByCurrentUser ? Colors.red : null,
+                            _isLikedByCurrentUser
+                                ? Icons.favorite
+                                : Icons.favorite_border,
+                            color:
+                                _isLikedByCurrentUser ? Colors.red : null,
                           ),
                         ),
-                        Text('${_item.reactions.length}'),
+                        Text('$_reactionCount'),
                         const SizedBox(width: 16),
                         const Icon(Icons.mode_comment_outlined),
                         const SizedBox(width: 6),
@@ -438,7 +487,8 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Column(
-                        children: topComments.map(_buildCommentTile).toList(),
+                        children:
+                            topComments.map(_buildCommentTile).toList(),
                       ),
                     ),
                   const SizedBox(height: 16),
@@ -492,8 +542,15 @@ class _FeedDetailPageState extends State<FeedDetailPage> {
                       ),
                       const SizedBox(width: 8),
                       ElevatedButton(
-                        onPressed: _submitComment,
-                        child: const Text('Send'),
+                        onPressed: _isSubmitting ? null : _submitComment,
+                        child: _isSubmitting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2),
+                              )
+                            : const Text('Send'),
                       ),
                     ],
                   ),
